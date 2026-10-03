@@ -91,18 +91,27 @@ export function counterLine(tries) {
 }
 
 // ---------- timeline layout ----------
-// repos: [{name, lang, created}] sorted by created. returns slots of towers.
-export function layoutTimeline(repos, cfg) {
+// repos: [{name, lang, created}] sorted by created. returns slots of towers and locks.
+export function layoutTimeline(repos, cfg, maxLocks = 3) {
   const towers = [];
   for (const r of repos) {
     const day = dayNum(r.created.slice(0, 10));
     const t = towers[towers.length - 1];
     if (t && day - t.firstDay <= 30) { t.repos.push(r); t.lastDay = day; } else towers.push({ repos: [r], firstDay: day, lastDay: day });
   }
-  const slots = towers.map((t) => ({ kind: 'tower', tower: t }));
+  const slots = [], gaps = [];
+  towers.forEach((t, i) => {
+    if (i > 0) {
+      const gap = t.firstDay - towers[i - 1].lastDay;
+      const n = Math.min(maxLocks, Math.floor(gap / 120));
+      gaps.push({ days: gap, locks: n });
+      for (let k = 0; k < n; k++) slots.push({ kind: 'lock', gap: i - 1, k, of: n });
+    }
+    slots.push({ kind: 'tower', tower: t });
+  });
   slots.forEach((s, i) => { s.x = SLOT0 + i * SLOT; });
   const flagSlot = slots.find((s) => s.kind === 'tower' && s.tower.repos.some((r) => r.name === cfg.flag));
-  return { towers, slots, flagSlot };
+  return { towers, slots, gaps, flagSlot };
 }
 
 function tileStyle(r, cfg) {
@@ -128,7 +137,7 @@ function icon(name, x, y, size, fill) {
   usedIcons.add(name);
   return `<use href="#ic-${name}" transform="translate(${r2(x)} ${r2(y)}) scale(${r2(size / 24)})" fill="${fill}"/>`;
 }
-const iconDefs = () => [...usedIcons].sort().map((n) => `<path id="ic-${n}" d="${ICONS[n]}"/>`).join('');
+const iconDefs = () => [...usedIcons].sort().map((n) => `<path id="ic-${n}" d="${ICONS[n]}"${n === 'padlock' ? ' fill-rule="evenodd"' : ''}/>`).join('');
 
 // a block: darker edge, face, soft highlight. the flag repo is a stopwatch, like on the site.
 function repoTile(r, x, y, cfg) {
@@ -146,6 +155,13 @@ function repoTile(r, x, y, cfg) {
     + `<rect x="${x}" y="${y}" width="${TILE}" height="${TILE - 2.5}" rx="6" fill="${st.c}"/>`
     + `<rect x="${x + 3}" y="${y + 2.5}" width="${TILE - 6}" height="6" rx="3" fill="#ffffff" opacity=".22"/>`
     + inner + '</g>';
+}
+
+function lockTile(x, T) {
+  const y = GY - TILE;
+  return `<g class="tile"><rect x="${x}" y="${y}" width="${TILE}" height="${TILE}" rx="6" fill="${T.lockShade}"/>`
+    + `<rect x="${x}" y="${y}" width="${TILE}" height="${TILE - 2.5}" rx="6" fill="${T.lockFace}"/>`
+    + icon('padlock', x + 6, y + 5, 14, T.lockInk) + '</g>';
 }
 
 // runner, feet at (RX, GY). drawn in a frame with the hip at (0,0). same figure and colors as the site's.
@@ -170,11 +186,14 @@ function action(state, T) {
   return `<path d="M${RX + 10} ${GY}H840" stroke="${T.dash}" stroke-width="2" stroke-dasharray="10 14"/>` + runner(T);
 }
 
-// repo towers, model coordinates, baseline GY
+// repo towers and grey locks, model coordinates, baseline GY
 function tiles(layout, T, cfg) {
   const out = [];
   const { slots } = layout;
-  for (const s of slots) s.tower.repos.forEach((r, k) => out.push(repoTile(r, s.x, GY - TILE - k * STACK, cfg)));
+  for (const s of slots) {
+    if (s.kind === 'lock') out.push(lockTile(s.x, T));
+    else s.tower.repos.forEach((r, k) => out.push(repoTile(r, s.x, GY - TILE - k * STACK, cfg)));
+  }
   return out.join('');
 }
 
@@ -251,6 +270,7 @@ function wideScene(state, T, cfg, dark) {
   // year marks under the towers where the year changes
   let lastYear = '';
   for (const s of slots) {
+    if (s.kind !== 'tower') continue;
     const y = s.tower.repos[0].created.slice(0, 4);
     if (y === lastYear) continue;
     out.push(`<text x="${s.x}" y="${Wd.gy + 20}" font-size="13" fill="${T.gInk}">${y}</text>`);
