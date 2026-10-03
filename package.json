@@ -1,0 +1,10 @@
+{
+  "name": "aaghashm",
+  "private": true,
+  "type": "module",
+  "description": "profile readme: a runner on my real repo timeline. try to stop him.",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "render": "node scripts/render.mjs"
+  }
+}
