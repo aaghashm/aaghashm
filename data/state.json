@@ -1,5 +1,63 @@
 {
  "version": 1,
  "tries": 0,
+ "streak": {
+  "repo": "persistent-stopwatch",
+  "current": 98,
+  "start": "2026-06-28",
+  "best": 98
+ },
+ "repos": [
+  {
+   "name": "PYTHON-TEXT-TO-SPEECH",
+   "lang": "Python",
+   "created": "2022-09-19T11:45:09Z"
+  },
+  {
+   "name": "MACHINE-LEARNING-PROJECTS",
+   "lang": "Jupyter Notebook",
+   "created": "2022-09-20T00:04:22Z"
+  },
+  {
+   "name": "PYTHON-BASICS-NOTES",
+   "lang": "Jupyter Notebook",
+   "created": "2022-09-23T02:49:54Z"
+  },
+  {
+   "name": "SIMPLE-PYTHON-PROJECTS",
+   "lang": "Jupyter Notebook",
+   "created": "2022-09-24T08:51:49Z"
+  },
+  {
+   "name": "Tableau",
+   "lang": "Jupyter Notebook",
+   "created": "2024-01-14T13:23:55Z"
+  },
+  {
+   "name": "CGPA-BUDDY",
+   "lang": "JavaScript",
+   "created": "2024-02-03T20:16:31Z"
+  },
+  {
+   "name": "vehicle_repair_app",
+   "lang": "JavaScript",
+   "created": "2024-08-06T10:20:55Z"
+  },
+  {
+   "name": "mlops-zoomcamp",
+   "lang": "Jupyter Notebook",
+   "created": "2024-11-17T08:57:02Z"
+  },
+  {
+   "name": "App-Releases",
+   "lang": null,
+   "created": "2025-01-20T12:08:31Z"
+  },
+  {
+   "name": "persistent-stopwatch",
+   "lang": "C++",
+   "created": "2026-06-28T22:05:45Z"
+  }
+ ],
  "lastDaily": "2026-10-03"
 }

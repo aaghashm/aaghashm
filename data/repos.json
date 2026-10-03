@@ -1,3 +1,16 @@
 {
-  "start": "2022-09-19"
+  "exclude": [
+    "aaghashm",
+    "aaghashm.github.io"
+  ],
+  "include": [
+    "CGPA-BUDDY"
+  ],
+  "icon": {
+    "Tableau": "tableau",
+    "App-Releases": "package"
+  },
+  "flag": "persistent-stopwatch",
+  "start": "2022-09-19",
+  "streakTz": "America/Los_Angeles"
 }

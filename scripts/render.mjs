@@ -3,6 +3,7 @@
 import { readFileSync, writeFileSync, realpathSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { ICONS } from './icons.mjs';
 
 export const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -12,6 +13,7 @@ export const W = 840, H = 280;
 // the runner is drawn in "model" coordinates (below), then scaled up.
 export const RX = 620;              // runner x
 export const GY = 176;              // track baseline
+export const SLOT0 = 28, SLOT = 34, TILE = 26, STACK = 28;
 // wide: runner and road at s x model size, runner at rx, ground at gy. tiles stay 1x.
 export const WIDE = { s: 1.5, rx: 644, gy: 224 };
 // the big faint year: [center x, height above the ground, size]. it sits over the hills between
@@ -36,6 +38,16 @@ export const THEMES = {
   },
 
 };
+// tile colors and short names are the site's
+export const LANG = {
+  Python: { c: '#3b82f6', icon: 'python' },
+  'Jupyter Notebook': { c: '#f97316', icon: 'jupyter' },
+  Jupyter: { c: '#f97316', icon: 'jupyter' },
+  JavaScript: { c: '#eab308', icon: 'javascript' },
+  'C++': { c: '#f34b7d', icon: 'cplusplus' },
+};
+const ICON_STYLE = { tableau: { c: '#14b8a6', icon: 'barchart' }, package: { c: '#64748b', icon: 'package' } };
+
 // ---------- small helpers ----------
 const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 const r2 = (n) => Math.round(n * 100) / 100;
@@ -51,8 +63,18 @@ export const dayNum = (iso) => Math.round(Date.UTC(+iso.slice(0, 4), +iso.slice(
 export const fmtDay = (iso) => `${+iso.slice(8, 10)} ${MON[+iso.slice(5, 7) - 1]} ${iso.slice(0, 4)}`;
 export const fmtShort = (iso) => `${+iso.slice(8, 10)} ${MON[+iso.slice(5, 7) - 1]}`;
 
+function lum(hex) {
+  const v = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255).map((c) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
+  return 0.2126 * v[0] + 0.7152 * v[1] + 0.0722 * v[2];
+}
+// pick #0d1117 or #ffffff, whichever contrasts more with the tile
+export function iconInk(fill) {
+  const L = lum(fill), cw = 1.05 / (L + 0.05), cd = (L + 0.05) / (lum('#0d1117') + 0.05);
+  return cd > cw ? '#0d1117' : '#ffffff';
+}
 // darker edge under a tile, like the site's blocks
 const mixHex = (a, b, t) => '#' + [1, 3, 5].map((i) => Math.round(parseInt(a.slice(i, i + 2), 16) * (1 - t) + parseInt(b.slice(i, i + 2), 16) * t).toString(16).padStart(2, '0')).join('');
+const shade = (hex, k = 0.28) => '#' + [1, 3, 5].map((i) => Math.round(parseInt(hex.slice(i, i + 2), 16) * (1 - k)).toString(16).padStart(2, '0')).join('');
 
 // years + days since the first repo, same as the site's clock ("4y 26d")
 export function sinceStart(start, today) {
@@ -68,6 +90,27 @@ export function counterLine(tries) {
   return `tried ${tries} time${tries === 1 ? '' : 's'}. stopped 0.`;
 }
 
+// ---------- timeline layout ----------
+// repos: [{name, lang, created}] sorted by created. returns slots of towers.
+export function layoutTimeline(repos, cfg) {
+  const towers = [];
+  for (const r of repos) {
+    const day = dayNum(r.created.slice(0, 10));
+    const t = towers[towers.length - 1];
+    if (t && day - t.firstDay <= 30) { t.repos.push(r); t.lastDay = day; } else towers.push({ repos: [r], firstDay: day, lastDay: day });
+  }
+  const slots = towers.map((t) => ({ kind: 'tower', tower: t }));
+  slots.forEach((s, i) => { s.x = SLOT0 + i * SLOT; });
+  const flagSlot = slots.find((s) => s.kind === 'tower' && s.tower.repos.some((r) => r.name === cfg.flag));
+  return { towers, slots, flagSlot };
+}
+
+function tileStyle(r, cfg) {
+  const ov = cfg.icon?.[r.name];
+  if (ov) return ICON_STYLE[ov] || ICON_STYLE.package;
+  return LANG[r.lang] || ICON_STYLE.package;
+}
+
 // ---------- svg pieces ----------
 function css() {
   return `
@@ -76,6 +119,33 @@ text{font-family:${MONO};font-weight:500}.sg{font-family:${SANS};font-weight:700
 .lv{animation:lv 2s ease-in-out infinite}@keyframes lv{50%{opacity:.25}}
 @media (prefers-reduced-motion:reduce){*{animation:none!important}}
 `.trim().replace(/\n+/g, '\n');
+}
+
+// each icon path is written once in <defs> and reused
+let usedIcons = new Set();
+function icon(name, x, y, size, fill) {
+  if (!ICONS[name]) return '';
+  usedIcons.add(name);
+  return `<use href="#ic-${name}" transform="translate(${r2(x)} ${r2(y)}) scale(${r2(size / 24)})" fill="${fill}"/>`;
+}
+const iconDefs = () => [...usedIcons].sort().map((n) => `<path id="ic-${n}" d="${ICONS[n]}"/>`).join('');
+
+// a block: darker edge, face, soft highlight. the flag repo is a stopwatch, like on the site.
+function repoTile(r, x, y, cfg) {
+  const st = tileStyle(r, cfg), cx = x + TILE / 2, cy = y + TILE / 2 - 1;
+  let inner;
+  if (r.name === cfg.flag) {
+    inner = `<rect x="${cx - 3.5}" y="${y - 3}" width="7" height="4" rx="1.5" fill="#1a1a1a"/>`
+      + `<circle cx="${cx}" cy="${cy + 1}" r="8" fill="#ffffff" stroke="#1a1a1a" stroke-width="1.8"/>`
+      + `<g transform="translate(${cx} ${cy + 1})"><path class="tk" d="M0 0V-5.5" stroke="#1a1a1a" stroke-width="2" stroke-linecap="round"/></g>`
+      + `<circle cx="${cx}" cy="${cy + 1}" r="1.6" fill="#e8590c"/>`;
+  } else if (st.t) {
+    inner = `<text class="sg" x="${cx}" y="${r2(cy + 4.6)}" font-size="13" text-anchor="middle" fill="${iconInk(st.c)}">${st.t}</text>`;
+  } else inner = icon(st.icon, x + 5, y + 4, 16, iconInk(st.c));
+  return `<g class="tile"><rect x="${x}" y="${y}" width="${TILE}" height="${TILE}" rx="6" fill="${shade(st.c)}"/>`
+    + `<rect x="${x}" y="${y}" width="${TILE}" height="${TILE - 2.5}" rx="6" fill="${st.c}"/>`
+    + `<rect x="${x + 3}" y="${y + 2.5}" width="${TILE - 6}" height="6" rx="3" fill="#ffffff" opacity=".22"/>`
+    + inner + '</g>';
 }
 
 // runner, feet at (RX, GY). drawn in a frame with the hip at (0,0). same figure and colors as the site's.
@@ -98,6 +168,26 @@ function runner(T) {
 // the runner and the road ahead, in model coordinates. the layout scales it.
 function action(state, T) {
   return `<path d="M${RX + 10} ${GY}H840" stroke="${T.dash}" stroke-width="2" stroke-dasharray="10 14"/>` + runner(T);
+}
+
+// repo towers, model coordinates, baseline GY
+function tiles(layout, T, cfg) {
+  const out = [];
+  const { slots } = layout;
+  for (const s of slots) s.tower.repos.forEach((r, k) => out.push(repoTile(r, s.x, GY - TILE - k * STACK, cfg)));
+  return out.join('');
+}
+
+// flag on the streak repo. px = pole x, top = top of the tower, fy = flag top, size = font size
+// the flag points left when the streak is over (the long label) or when there's no room on the right
+function flag(streak, T, px, top, fy, size, short = false, toLeft = false) {
+  const label = streak.current > 0 ? `day ${streak.current}` : short ? `${streak.best} days` : `${streak.best} days. still running.`;
+  const fh = Math.round(size * 2.3), fw = textW(label, size) + size * 1.3, left = toLeft || streak.current <= 0;
+  const fxa = left ? px - fw : px, k = fh / 2;
+  const notch = left ? `M${px} ${fy}H${r2(fxa)}l${r2(k * 0.7)} ${r2(k)}-${r2(k * 0.7)} ${r2(k)}H${px}Z` : `M${px} ${fy}h${r2(fw)}l-${r2(k * 0.7)} ${r2(k)} ${r2(k * 0.7)} ${r2(k)}H${px}Z`;
+  return `<path d="M${px} ${top}V${fy}" stroke="${T.ink}" stroke-width="${r2(size / 7)}"/>`
+    + `<path d="${notch}" fill="${T.accent}"/>`
+    + `<text x="${r2(left ? fxa + size * 0.9 : px + size * 0.4)}" y="${r2(fy + fh / 2 + size * 0.36)}" font-size="${size}" font-weight="700" fill="#1a1a1a">${esc(label)}</text>`;
 }
 
 // the site's world: sky to warm haze, stars and a moon at night (a pale sun by day), a far range of
@@ -147,8 +237,29 @@ function backdrop(T, dark, o) {
 
 function wideScene(state, T, cfg, dark) {
   const out = [], Wd = WIDE;
+  const layout = layoutTimeline(state.repos || [], cfg);
+  const { slots, flagSlot } = layout;
+  const streak = state.streak || { current: 0, best: 0 };
   const today = state.lastDaily || state.today || new Date().toISOString().slice(0, 10);
+  const dy = Wd.gy - GY;
+  // the year sits over the open sky above the timeline, not behind the runner
   out.push(backdrop(T, dark, { gy: Wd.gy, k: 0.62, year: today.slice(0, 4), mark: [MARK.wide[0], Wd.gy - MARK.wide[1], MARK.wide[2]], moon: [556, 50, 1] }));
+  // track: the ground's lit edge is the timeline. the streak part is accent while it's alive, then the road ahead
+  const fx = flagSlot ? flagSlot.x + TILE : 462;
+  if (streak.current > 0) out.push(`<path d="M${fx} ${Wd.gy}H${Wd.rx}" stroke="${T.accent}" stroke-width="3.5" stroke-linecap="round"/>`);
+  out.push(`<g transform="translate(0 ${dy})">${tiles(layout, T, cfg)}</g>`);
+  // year marks under the towers where the year changes
+  let lastYear = '';
+  for (const s of slots) {
+    const y = s.tower.repos[0].created.slice(0, 4);
+    if (y === lastYear) continue;
+    out.push(`<text x="${s.x}" y="${Wd.gy + 20}" font-size="13" fill="${T.gInk}">${y}</text>`);
+    lastYear = y;
+  }
+  if (flagSlot) {
+    out.push(flag(streak, T, flagSlot.x + TILE / 2, Wd.gy - TILE * flagSlot.tower.repos.length - 3, Wd.gy - 82, 14));
+    if (streak.current > 0 && streak.start) out.push(`<text x="${fx + 6}" y="${Wd.gy + 44}" font-size="13" fill="${T.gInk}">since ${fmtShort(streak.start)}</text>`);
+  }
   const ax = r2(Wd.rx - RX * Wd.s), ay = r2(Wd.gy - GY * Wd.s);
   out.push(`<g transform="translate(${ax} ${ay}) scale(${Wd.s})">${action(state, T)}</g>`);
   out.push(`<text x="${Wd.rx}" y="${Wd.gy + 44}" font-size="13" text-anchor="middle" fill="${T.gInk}">today</text>`);
@@ -166,6 +277,7 @@ const skyDef = (id, T, y2) => `<linearGradient id="${id}" gradientUnits="userSpa
 
 export function heroSvg(state, cfg, themeName, now = Date.now()) {
   const T = THEMES[themeName];
+  usedIcons = new Set();
   const dark = themeName === 'dark';
   const wide = wideScene(state, T, cfg, dark);
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">`
@@ -173,7 +285,7 @@ export function heroSvg(state, cfg, themeName, now = Date.now()) {
     + `<defs>`
     + `<clipPath id="card"><rect width="${W}" height="${H}" rx="16"/></clipPath>`
     + skyDef('sky', T, 240)
-    + `</defs>`
+    + `${iconDefs()}</defs>`
     + `<g id="wide"><g clip-path="url(#card)">${wide}</g></g>`
     + `</svg>\n`;
 }
