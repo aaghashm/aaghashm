@@ -35,10 +35,10 @@ export const SHOW = { wide: [522, 544, 724, 750] };
 const EASE_UP = [0.2, 0.7, 0.4, 1];   // ease-out going up
 const EASE_DOWN = [0.6, 0, 0.8, 0.3]; // ease-in coming down
 
-// the site's faces when the viewer has them, system fonts otherwise
-const MONO = '&quot;JetBrains Mono&quot;,ui-monospace,SFMono-Regular,Menlo,Consolas,monospace';
-const SANS = '&quot;Space Grotesk&quot;,system-ui,-apple-system,&quot;Segoe UI&quot;,Helvetica,Arial,sans-serif';
-const CLOCK = '&quot;JetBrains Mono&quot;,ui-monospace,Menlo,monospace';
+// the site's faces, embedded as small subsets (data/fonts, SIL OFL). system fonts take over if they can't load.
+const MONO = 'sr-mono,&quot;JetBrains Mono&quot;,ui-monospace,SFMono-Regular,Menlo,Consolas,monospace';
+const SANS = 'sr-sans,&quot;Space Grotesk&quot;,system-ui,-apple-system,&quot;Segoe UI&quot;,Helvetica,Arial,sans-serif';
+const CLOCK = 'sr-clock,&quot;JetBrains Mono&quot;,ui-monospace,Menlo,monospace';
 const MON = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
 
 // the site (aaghashm.github.io) defines all of these. the world is its 2022 palette:
@@ -68,7 +68,7 @@ const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replac
 const r2 = (n) => Math.round(n * 100) / 100;
 const pct = (t) => (Math.round((t / LOOP) * 100000) / 1000) + '%';
 export const textW = (s, size) => s.length * size * 0.602;
-// advance widths of space grotesk (em), measured once from the font file
+// advance widths of the embedded sans (em), measured once from the font file
 const SG = {
   a: .578, b: .638, c: .586, d: .638, e: .577, f: .436, g: .638, h: .616, i: .266, j: .268, k: .564, l: .266, m: .854, n: .616,
   o: .612, p: .638, q: .638, r: .396, s: .524, t: .456, u: .616, v: .548, w: .784, x: .592, y: .616, z: .518,
@@ -179,6 +179,18 @@ export function jumpAt(t) {
 }
 
 // ---------- svg pieces ----------
+let FONT_CSS = null;
+function fontCss() {
+  if (FONT_CSS == null) {
+    const b64 = (f) => readFileSync(join(ROOT, 'data/fonts', f)).toString('base64');
+    FONT_CSS = `@font-face{font-family:sr-sans;font-weight:700;src:url(data:font/woff2;base64,${b64('space-grotesk-700.woff2')}) format("woff2")}`
+      + `@font-face{font-family:sr-clock;font-weight:300;src:url(data:font/woff2;base64,${b64('jetbrains-mono-300.woff2')}) format("woff2")}`
+      + `@font-face{font-family:sr-mono;font-weight:500;src:url(data:font/woff2;base64,${b64('jetbrains-mono-500.woff2')}) format("woff2")}`
+      + `@font-face{font-family:sr-mono;font-weight:700;src:url(data:font/woff2;base64,${b64('jetbrains-mono-700.woff2')}) format("woff2")}`;
+  }
+  return FONT_CSS;
+}
+
 function css() {
   const kf = [];
   START_X.forEach((x0, i) => {
@@ -196,6 +208,7 @@ function css() {
   const fz = pct(F), fz2 = pct(F + 0.008), b = pct(3), b2 = pct(3.008);
   const dashT = r2(24 / V);
   return `
+${fontCss()}
 text{font-family:${MONO};font-weight:500}.sg{font-family:${SANS};font-weight:700}.ck{font-family:${CLOCK};font-weight:300}
 .sw,.rn,.b1,.b2,.ds,.dr,.hd,.jp,.wp{animation-duration:${LOOP}s;animation-iteration-count:infinite;animation-timing-function:linear}
 .sw,.ds{animation-name:sw}.rn{animation-name:rn}.dr{animation-name:rn,dash;animation-duration:${LOOP}s,${dashT}s}
