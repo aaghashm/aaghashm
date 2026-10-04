@@ -10,15 +10,30 @@ export const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 // ---------- scene constants ----------
 // the box
 export const W = 840, H = 280;
-// the runner is drawn in "model" coordinates (below), then scaled up.
+// the motion is worked out in "model" coordinates (below), then each layout scales it up.
+export const LOOP = 8;              // seconds per loop
+export const F = 1.4;               // freeze: he stands still, "fine. stopped."
+export const LANE_L = 500, LANE_R = 840, FADE = 20;
 export const RX = 620;              // runner x
 export const GY = 176;              // track baseline
+export const V = (LANE_R - LANE_L) / (LOOP - F); // px per second
+export const START_X = [652, 720, 788, 516, 584]; // h0 (newest) .. h4
+export const JUMP_H = 34, JUMP_HALF = 0.5;
+// a hurdle he has cleared fades out right behind him: gone at BEHIND[0], fully there from BEHIND[1].
+// so the still frame shows only what's ahead, in the order he meets them (newest first).
+export const BEHIND = [586, 604];
 export const SLOT0 = 28, SLOT = 34, TILE = 26, STACK = 28;
-// wide: runner and road at s x model size, runner at rx, ground at gy. tiles stay 1x.
+export const HURDLE_R = 12, HURDLE_CY = GY - 4 - HURDLE_R;
+// wide: runner, hurdles and road at s x model size, runner at rx, ground at gy. tiles stay 1x.
 export const WIDE = { s: 1.5, rx: 644, gy: 224 };
+// where the hurdles show, in model x: [gone, full, full, gone]. outside it they fade to nothing,
+// so a hurdle never sits on the flag, the year labels or the edge of the picture.
 // the big faint year: [center x, height above the ground, size]. it sits over the hills between
 // the 2024 blocks and the flag, clear of every block, like the site's year behind open scenery.
 export const MARK = { wide: [316, 32, 90] };
+export const SHOW = { wide: [522, 544, 724, 750] };
+const EASE_UP = [0.2, 0.7, 0.4, 1];   // ease-out going up
+const EASE_DOWN = [0.6, 0, 0.8, 0.3]; // ease-in coming down
 
 // the site's faces when the viewer has them, system fonts otherwise
 const MONO = '&quot;JetBrains Mono&quot;,ui-monospace,SFMono-Regular,Menlo,Consolas,monospace';
@@ -51,6 +66,7 @@ const ICON_STYLE = { tableau: { c: '#14b8a6', icon: 'barchart' }, package: { c: 
 // ---------- small helpers ----------
 const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 const r2 = (n) => Math.round(n * 100) / 100;
+const pct = (t) => (Math.round((t / LOOP) * 100000) / 1000) + '%';
 export const textW = (s, size) => s.length * size * 0.602;
 // advance widths of space grotesk (em), measured once from the font file
 const SG = {
@@ -120,10 +136,83 @@ function tileStyle(r, cfg) {
   return LANG[r.lang] || ICON_STYLE.package;
 }
 
+// ---------- motion math ----------
+export function crossTime(x0) {
+  const d = x0 > RX ? x0 - RX : (x0 - LANE_L) + (LANE_R - RX);
+  return F + d / V;
+}
+export const opacityAt = (x) => Math.max(0, Math.min(1, (x - BEHIND[0]) / (BEHIND[1] - BEHIND[0]), (LANE_R - x) / FADE));
+
+// keyframe points [t, x, opacity] for one hurdle over the loop. opacity is linear in x between
+// these points, so every place the fade bends gets a point.
+export function hurdlePoints(x0) {
+  const pts = [[0, x0], [F, x0]];
+  const tAt = (x) => F + (x0 - x) / V;                // before the wrap
+  const tAfter = (x) => F + (x0 - LANE_L) / V + (LANE_R - x) / V; // after the wrap
+  const bends = [LANE_R - FADE, ...BEHIND];
+  for (const b of bends) if (b < x0) pts.push([tAt(b), b]);
+  const tw = tAt(LANE_L);
+  pts.push([tw, LANE_L], [tw + LOOP * 0.0001, LANE_R]);
+  for (const b of bends) if (b > x0) pts.push([tAfter(b), b]);
+  pts.push([LOOP, x0]);
+  return pts.sort((a, b) => a[0] - b[0]).map(([t, x]) => [t, x, opacityAt(x)]);
+}
+
+// cubic-bezier easing (keeps the keyframes honest)
+export function bezier([x1, y1, x2, y2], x) {
+  let lo = 0, hi = 1, t = x;
+  for (let i = 0; i < 40; i++) {
+    t = (lo + hi) / 2;
+    const bx = 3 * (1 - t) ** 2 * t * x1 + 3 * (1 - t) * t * t * x2 + t ** 3;
+    if (bx < x) lo = t; else hi = t;
+  }
+  return 3 * (1 - t) ** 2 * t * y1 + 3 * (1 - t) * t * t * y2 + t ** 3;
+}
+// jump height (px above ground) at time t
+export function jumpAt(t) {
+  for (const x0 of START_X) {
+    const tc = crossTime(x0), u = t - tc;
+    if (Math.abs(u) > JUMP_HALF) continue;
+    return u < 0 ? JUMP_H * bezier(EASE_UP, (u + JUMP_HALF) / JUMP_HALF) : JUMP_H * (1 - bezier(EASE_DOWN, u / JUMP_HALF));
+  }
+  return 0;
+}
+
 // ---------- svg pieces ----------
 function css() {
+  const kf = [];
+  START_X.forEach((x0, i) => {
+    const pts = hurdlePoints(x0);
+    kf.push(`@keyframes h${i}{${pts.map(([t, x, o]) => `${pct(t)}{transform:translateX(${r2(x - x0)}px);opacity:${r2(o)}}`).join('')}}`);
+  });
+  const jumps = [];
+  jumps.push(`0%{transform:translateY(0)}`);
+  START_X.map(crossTime).sort((a, b) => a - b).forEach((tc) => {
+    jumps.push(`${pct(tc - JUMP_HALF)}{transform:translateY(0);animation-timing-function:cubic-bezier(${EASE_UP})}`);
+    jumps.push(`${pct(tc)}{transform:translateY(-${JUMP_H}px);animation-timing-function:cubic-bezier(${EASE_DOWN})}`);
+    jumps.push(`${pct(tc + JUMP_HALF)}{transform:translateY(0);animation-timing-function:linear}`);
+  });
+  jumps.push(`100%{transform:translateY(0)}`);
+  const fz = pct(F), fz2 = pct(F + 0.008), b = pct(3), b2 = pct(3.008);
+  const dashT = r2(24 / V);
   return `
 text{font-family:${MONO};font-weight:500}.sg{font-family:${SANS};font-weight:700}.ck{font-family:${CLOCK};font-weight:300}
+.sw,.rn,.b1,.b2,.ds,.dr,.hd,.jp,.wp{animation-duration:${LOOP}s;animation-iteration-count:infinite;animation-timing-function:linear}
+.sw,.ds{animation-name:sw}.rn{animation-name:rn}.dr{animation-name:rn,dash;animation-duration:${LOOP}s,${dashT}s}
+.b1{animation-name:b1}.b2{animation-name:b2}.jp{animation-name:jp}.wp{animation-name:wp}
+@keyframes sw{0%,${fz}{opacity:1}${fz2},100%{opacity:0}}
+@keyframes rn{0%,${fz}{opacity:0}${fz2},100%{opacity:1}}
+@keyframes b1{0%,${pct(F - 0.008)}{opacity:1}${fz},100%{opacity:0}}
+@keyframes b2{0%,${pct(F - 0.008)}{opacity:0}${fz},${b}{opacity:1}${b2},100%{opacity:0}}
+@keyframes dash{from{stroke-dashoffset:0}to{stroke-dashoffset:24}}
+@keyframes jp{${jumps.join('')}}
+@keyframes wp{0%,${fz}{transform:rotate(70deg)}${pct(F + 0.12)}{transform:rotate(-18deg)}${pct(F + 0.26)}{transform:rotate(6deg)}${pct(F + 0.4)},100%{transform:rotate(0)}}
+${kf.join('\n')}
+${START_X.map((_, i) => `.h${i}{animation-name:h${i}}`).join('')}
+.lg,.ar{animation:sg .36s ease-in-out infinite alternate}.lg.bk,.ar.fr{animation-delay:-.36s}
+@keyframes sg{from{transform:rotate(-28deg)}to{transform:rotate(28deg)}}
+.fl{animation:fl .4s ease-in-out infinite alternate}
+@keyframes fl{from{transform:scaleY(1)}to{transform:scaleY(-.7)}}
 .tk{animation:tk 60s steps(60) infinite}@keyframes tk{to{transform:rotate(360deg)}}
 .lv{animation:lv 2s ease-in-out infinite}@keyframes lv{50%{opacity:.25}}
 @media (prefers-reduced-motion:reduce){*{animation:none!important}}
@@ -171,19 +260,69 @@ function runner(T) {
   const body = (lean) => `<g transform="rotate(${lean})"><rect x="-6.5" y="-16" width="13" height="18" rx="6.5" fill="${T.rInk}"/>`
     + `<circle cx="1.5" cy="-22" r="7.5" fill="${T.rInk}"/><ellipse cx="5" cy="-23" rx="1.4" ry="1.9" fill="${T.rEye}"/>`
     + `<rect x="-6" y="-15.5" width="13" height="4.5" rx="2.2" fill="${T.scarf}"/></g>`;
-  // standing: hands on hips, scarf hanging
-  const standing = `<g>`
+  const tailA = 'M-5 -13.5c-5-1-8 3-13 1.5s-7-3.5-11-1';
+  // standing: hands on hips, scarf hanging. this is the static frame.
+  const standing = `<g class="sw">`
     + `<path d="M-4.5 -13.5c-2 1-3 3.5-2.6 7.5" stroke="${T.scarf}" stroke-width="3"/>`
     + `<g transform="translate(-2 0)">${leg('', T.rBack, 4)}</g><g transform="translate(2 0)">${leg('', T.rInk, -4)}</g>`
     + arm('', T.rBack, null, 'M0 0 -1.5 5.5 -1 10.5') + body(0) + arm('', T.rInk, null, 'M0 0 1.2 5.5 .8 10.5')
     + `</g>`;
+  const running = `<g class="rn" opacity="0">`
+    + `<g transform="translate(-4 -13.5)"><g class="wp"><g class="fl"><g transform="translate(4 13.5)"><path d="${tailA}" stroke="${T.scarf}" stroke-width="4.5"/></g></g></g></g>`
+    + leg('lg bk', T.rBack, 20) + arm('ar bk', T.rBack, -20) + body(6) + leg('lg fr', T.rInk, -20) + arm('ar fr', T.rInk, 20)
+    + `</g>`;
   return `<ellipse cx="${RX}" cy="${GY + 1}" rx="12" ry="2.6" fill="#000000" opacity=".18"/>`
-    + `<g transform="translate(${RX} ${GY - 12})" fill="none" stroke-linecap="round" stroke-linejoin="round">${standing}</g>`;
+    + `<g class="jp"><g transform="translate(${RX} ${GY - 12})" fill="none" stroke-linecap="round" stroke-linejoin="round">${standing}${running}</g></g>`;
 }
 
-// the runner and the road ahead, in model coordinates. the layout scales it.
-function action(state, T) {
-  return `<path d="M${RX + 10} ${GY}H840" stroke="${T.dash}" stroke-width="2" stroke-dasharray="10 14"/>` + runner(T);
+// speech bubble in layout coordinates. it opens on one line, "fine. stopped.", then grows a line for "jk.".
+// both share the tail tip (tx, ty). the two line one is the still frame, so a stopped gif still tells the joke.
+function bubblePath(x, y, w, h, r, [b0, b1, tx, ty]) {
+  return `M${x + r} ${y}H${r2(x + w - r)}a${r} ${r} 0 0 1 ${r} ${r}V${r2(y + h - r)}a${r} ${r} 0 0 1 -${r} ${r}`
+    + `H${b1}L${tx} ${ty}L${b0} ${r2(y + h)}H${x + r}a${r} ${r} 0 0 1 -${r} -${r}V${y + r}a${r} ${r} 0 0 1 ${r} -${r}Z`;
+}
+function speech(T, { x, y, size, pad, tail }) {
+  const { w, h, h1 } = bubbleBox(size, pad), r = Math.round(size * 0.55);
+  const l1 = r2(y + pad + size * 0.8), l2 = r2(l1 + size * 1.25);
+  const box = (hh) => `<path d="${bubblePath(x, y, r2(w), r2(hh), r, tail)}" fill="${T.board}" stroke="${T.boardLine}" stroke-width="${r2(size / 14)}"/>`;
+  const line1 = `<text class="sg" x="${x + pad}" y="${l1}" font-size="${size}" fill="${T.ink}">fine. stopped.</text>`;
+  return `<g class="b1" opacity="0">${box(h1)}${line1}</g>`
+    + `<g class="b2">${box(h)}${line1}<text class="sg" x="${x + pad}" y="${l2}" font-size="${size}" fill="${T.accentInk}">jk.</text></g>`;
+}
+export const bubbleBox = (size, pad) => ({ w: sansW('fine. stopped.', size) + pad * 2, h: pad * 2 + size * 2.1, h1: pad * 2 + size * 0.95 });
+
+function hurdle(i, h, T, { ls, ly }) {
+  const x0 = START_X[i];
+  const legs = `<path d="M-6 ${HURDLE_CY + 9}V${GY}M6 ${HURDLE_CY + 9}V${GY}" stroke="${T.lockInk}" stroke-width="2"/>`;
+  const ring = `<circle cy="${HURDLE_CY}" r="${HURDLE_R}" fill="none" stroke="${T.ink}" stroke-width="1.5"/>`;
+  let shape;
+  if (h) {
+    // someone tried: a plain face
+    shape = legs + `<circle cy="${HURDLE_CY}" r="${HURDLE_R}" fill="${T.lockFace}"/>`
+      + `<circle cy="${HURDLE_CY - 3}" r="4.2" fill="${T.lockInk}"/><path d="M-7 ${HURDLE_CY + 9.6}a7 6.4 0 0 1 14 0Z" fill="${T.lockInk}"/>` + ring;
+  } else {
+    // an empty slot: a plain track hurdle
+    shape = `<path d="M-9 ${GY - 16}V${GY}M9 ${GY - 16}V${GY}" stroke="${T.lockInk}" stroke-width="2"/>`
+      + `<rect x="-12" y="${GY - 19}" width="24" height="5" rx="2" fill="${T.lockInk}"/>`;
+  }
+  // the label sits on the ground under the hurdle. the newest slot, still empty, asks for you.
+  // ls is the model size and ly the baseline under GY: 10 is 15px wide, 13 is 22.75px in the phone box.
+  const label = h ? `<text y="${GY + ly}" font-size="${ls}" text-anchor="middle" fill="${T.gInk}">#${h.n}</text>`
+    : i === 0 ? `<text class="sg" y="${GY + ly}" font-size="${r2(ls * 1.05)}" text-anchor="middle" fill="${T.gAccent}">you?</text>` : '';
+  return `<g transform="translate(${x0} 0)"><g class="hd h${i}" opacity="${r2(opacityAt(x0))}">${shape}${label}</g></g>`;
+}
+
+// hurdles, runner and the road ahead, in model coordinates. the layout scales it.
+function action(state, T, { ls, ly, mask }) {
+  const out = [];
+  out.push(`<path class="ds" d="M${RX + 10} ${GY}H${LANE_R}" stroke="${T.dash}" stroke-width="2" stroke-dasharray="10 14"/>`);
+  out.push(`<path class="dr" d="M${RX + 10} ${GY}H${LANE_R}" stroke="${T.dash}" stroke-width="2" stroke-dasharray="10 14" opacity="0"/>`);
+  const hs = state.hurdles || [];
+  out.push(`<g mask="url(#${mask})">`);
+  for (let i = START_X.length - 1; i >= 0; i--) out.push(hurdle(i, hs[i], T, { ls, ly }));
+  out.push('</g>');
+  out.push(runner(T));
+  return out.join('');
 }
 
 // repo towers and grey locks, model coordinates, baseline GY
@@ -281,8 +420,10 @@ function wideScene(state, T, cfg, dark) {
     if (streak.current > 0 && streak.start) out.push(`<text x="${fx + 6}" y="${Wd.gy + 44}" font-size="13" fill="${T.gInk}">since ${fmtShort(streak.start)}</text>`);
   }
   const ax = r2(Wd.rx - RX * Wd.s), ay = r2(Wd.gy - GY * Wd.s);
-  out.push(`<g transform="translate(${ax} ${ay}) scale(${Wd.s})">${action(state, T)}</g>`);
+  out.push(`<g transform="translate(${ax} ${ay}) scale(${Wd.s})">${action(state, T, { ls: 10, ly: 15, mask: 'mw' })}</g>`);
   out.push(`<text x="${Wd.rx}" y="${Wd.gy + 44}" font-size="13" text-anchor="middle" fill="${T.gInk}">today</text>`);
+  const bx = Wd.rx + 18;
+  out.push(speech(T, { x: bx, y: 88, size: 19, pad: 13, tail: [bx + 14, bx + 30, Wd.rx + 12, r2(Wd.gy - 64)] }));
   // title, counter, and the site's clock
   out.push(`<text class="sg" x="28" y="66" font-size="50" fill="${T.accentInk}" letter-spacing="-1">still running.</text>`);
   out.push(`<text x="30" y="96" font-size="15" fill="${T.muted}">${esc(counterLine(state.tries || 0))}</text>`);
@@ -291,6 +432,14 @@ function wideScene(state, T, cfg, dark) {
   out.push(`<text x="812" y="30" font-size="12" text-anchor="end" fill="${T.muted}">since ${fmtDay(cfg.start)}</text>`);
   out.push(`<text class="ck" x="812" y="70" font-size="40" text-anchor="end" fill="${T.ink}">${since.y}<tspan font-size="20" fill="${T.muted}">y </tspan>${since.d}<tspan font-size="20" fill="${T.muted}">d</tspan></text>`);
   return out.join('');
+}
+
+// a mask in model x: hurdles fade out at both ends of the part of the lane that's on show
+function showMask(id, [a0, a1, b0, b1], w = W, h = H) {
+  const o = (x) => r2((x - a0) / (b1 - a0));
+  return `<linearGradient id="${id}g" gradientUnits="userSpaceOnUse" x1="${a0}" y1="0" x2="${b1}" y2="0">`
+    + `<stop offset="0" stop-color="#000"/><stop offset="${o(a1)}" stop-color="#fff"/><stop offset="${o(b0)}" stop-color="#fff"/><stop offset="1" stop-color="#000"/></linearGradient>`
+    + `<mask id="${id}" maskUnits="userSpaceOnUse" x="0" y="0" width="${w}" height="${h}"><rect width="${w}" height="${h}" fill="url(#${id}g)"/></mask>`;
 }
 
 const skyDef = (id, T, y2) => `<linearGradient id="${id}" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="0" y2="${y2}"><stop offset="0" stop-color="${T.sky0}"/><stop offset="1" stop-color="${T.sky1}"/></linearGradient>`;
@@ -305,6 +454,7 @@ export function heroSvg(state, cfg, themeName, now = Date.now()) {
     + `<defs>`
     + `<clipPath id="card"><rect width="${W}" height="${H}" rx="16"/></clipPath>`
     + skyDef('sky', T, 240)
+    + showMask('mw', SHOW.wide)
     + `${iconDefs()}</defs>`
     + `<g id="wide"><g clip-path="url(#card)">${wide}</g></g>`
     + `</svg>\n`;

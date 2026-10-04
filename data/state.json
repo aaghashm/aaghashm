@@ -1,11 +1,12 @@
 {
  "version": 1,
  "tries": 0,
+ "hurdles": [],
  "streak": {
   "repo": "persistent-stopwatch",
-  "current": 98,
+  "current": 99,
   "start": "2026-06-28",
-  "best": 98
+  "best": 99
  },
  "repos": [
   {
@@ -59,5 +60,5 @@
    "created": "2026-06-28T22:05:45Z"
   }
  ],
- "lastDaily": "2026-10-03"
+ "lastDaily": "2026-10-04"
 }
