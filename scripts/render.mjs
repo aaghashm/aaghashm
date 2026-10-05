@@ -1,6 +1,7 @@
-// builds the hero svgs (dark + light) from data/state.json.
+// builds the hero svgs (dark + light) and README.md from data/state.json.
 // run directly: node scripts/render.mjs
-import { readFileSync, writeFileSync, realpathSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { readFileSync, writeFileSync, readdirSync, unlinkSync, existsSync, realpathSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { ICONS } from './icons.mjs';
@@ -105,6 +106,13 @@ export function sinceStart(start, today) {
   const ann = (yr) => Date.UTC(yr, sm - 1, sd) / 864e5;
   if (dayNum(today) < ann(y)) y--;
   return { y: y - sy, d: dayNum(today) - ann(y) };
+}
+
+// the README paragraph. the flag already says "day N", so this says when it started.
+export function streakLine(st) {
+  const s = st || { current: 0, best: 0 };
+  if (s.current > 0) return s.start ? `a commit every day since ${fmtShort(s.start)}.` : `a commit every day for ${s.current} days.`;
+  return `best run so far: ${s.best} days of daily commits.`;
 }
 
 export function counterLine(tries) {
@@ -480,13 +488,35 @@ export function heroSvg(state, cfg, themeName, now = Date.now()) {
 }
 
 // ---------- write everything ----------
+const hash8 = (s) => createHash('sha256').update(s).digest('hex').slice(0, 8);
+
 export function renderAll(state, root = ROOT, now = Date.now()) {
   const cfg = JSON.parse(readFileSync(join(root, 'data/repos.json'), 'utf8'));
-  for (const th of ['dark', 'light']) writeFileSync(join(root, 'assets', `hero-${th}.svg`), heroSvg(state, cfg, th, now));
+  const assets = join(root, 'assets');
+  const files = {};
+  for (const th of ['dark', 'light']) {
+    const svg = heroSvg(state, cfg, th, now);
+    const name = `hero-${th}-${hash8(svg)}.svg`;
+    files[th] = name;
+    const p = join(assets, name);
+    if (!existsSync(p) || readFileSync(p, 'utf8') !== svg) writeFileSync(p, svg);
+  }
+  // old hero files go, new hashes mean camo never serves a stale one
+  const keep = new Set(Object.values(files));
+  for (const f of readdirSync(assets)) if (/^hero-(dark|light)-[0-9a-f]{8}\.svg$/.test(f) && !keep.has(f)) unlinkSync(join(assets, f));
+  state.assets = { heroDark: files.dark, heroLight: files.light };
+  const tmpl = readFileSync(join(root, 'templates/README.md.tmpl'), 'utf8');
+  const md = tmpl.replaceAll('{{heroDark}}', files.dark).replaceAll('{{heroLight}}', files.light)
+    .replaceAll('{{streakLine}}', streakLine(state.streak));
+  writeIfChanged(join(root, 'README.md'), md);
+  return state.assets;
 }
+function writeIfChanged(p, s) { if (!existsSync(p) || readFileSync(p, 'utf8') !== s) writeFileSync(p, s); }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === realpathSync(process.argv[1])) {
-  const state = JSON.parse(readFileSync(join(ROOT, 'data/state.json'), 'utf8'));
+  const sp = join(ROOT, 'data/state.json');
+  const state = JSON.parse(readFileSync(sp, 'utf8'));
   renderAll(state);
-  console.log('rendered');
+  writeFileSync(sp, JSON.stringify(state, null, 1) + '\n');
+  console.log('rendered', state.assets);
 }

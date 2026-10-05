@@ -60,5 +60,9 @@
    "created": "2026-06-28T22:05:45Z"
   }
  ],
- "lastDaily": "2026-10-05"
+ "lastDaily": "2026-10-05",
+ "assets": {
+  "heroDark": "hero-dark-fc7190b3.svg",
+  "heroLight": "hero-light-2b371017.svg"
+ }
 }
