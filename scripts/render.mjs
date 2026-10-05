@@ -1,4 +1,4 @@
-// builds the hero svg from data/state.json.
+// builds the hero svgs (dark + light) from data/state.json.
 // run directly: node scripts/render.mjs
 import { readFileSync, writeFileSync, realpathSync } from 'node:fs';
 import { join, dirname } from 'node:path';
@@ -51,7 +51,13 @@ export const THEMES = {
     rInk: '#f3efe8', rBack: '#bdb7ad', rEye: '#141416', scarf: '#7c8ba3',
     board: '#141417', boardLine: '#2e2e36', lockFace: '#3a4558', lockShade: '#2b3445', lockInk: '#94a3b8', live: '#3ad06b',
   },
-
+  light: {
+    ink: '#1a1a1a', muted: '#6f6a62', accent: '#f5a623', accentInk: '#a85f00', buttonFill: '#f6f8fa',
+    sky0: '#bfdcff', sky1: '#fef3e2', far: '#cfdcf1', farLit: '#c8dcf6', mid: '#a3badf', ground: '#4f6a99', edge: '#8aa6d6',
+    gInk: '#eef3fb', gAccent: '#ffcf70', dash: '#e1eafa', tex: 'rgba(0,0,0,.07)', mark: '#1a1a1a', markOp: 0.03,
+    rInk: '#1f1f27', rBack: '#4a4a55', rEye: '#ffffff', scarf: '#6d798b',
+    board: '#ffffff', boardLine: '#e3ded5', lockFace: '#e2e8f0', lockShade: '#cbd5e1', lockInk: '#64748b', live: '#2fb35c',
+  },
 };
 // tile colors and short names are the site's
 export const LANG = {
@@ -476,7 +482,7 @@ export function heroSvg(state, cfg, themeName, now = Date.now()) {
 // ---------- write everything ----------
 export function renderAll(state, root = ROOT, now = Date.now()) {
   const cfg = JSON.parse(readFileSync(join(root, 'data/repos.json'), 'utf8'));
-  writeFileSync(join(root, 'assets/hero.svg'), heroSvg(state, cfg, 'dark', now));
+  for (const th of ['dark', 'light']) writeFileSync(join(root, 'assets', `hero-${th}.svg`), heroSvg(state, cfg, th, now));
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === realpathSync(process.argv[1])) {
