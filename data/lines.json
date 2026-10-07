@@ -1,0 +1,20 @@
+{
+  "stopOpen": "fine. stopped.\n\njk.",
+  "stop": [
+    "he heard you. he doesn't care.",
+    "nope. the private repos need him.",
+    "he jumped you. no hard feelings.",
+    "the stopwatch keeps counting across reboots. so does he.",
+    "try again tomorrow. he'll still be running."
+  ],
+  "milestones": {
+    "50": "50 tries. 0 stops.",
+    "100": "100 tries. 0 stops. that's a streak too.",
+    "500": "500 tries. still running.",
+    "1000": "1000 tries. he didn't even slow down."
+  },
+  "stopTail": "you're hurdle #{n} on his profile now: https://github.com/{user}",
+  "stopEnd": "stopped: 0. the real one is playable: https://aaghashm.github.io",
+  "repeat": "one try a day. he's still running.\n\nthe real one is playable: https://aaghashm.github.io",
+  "busy": "too many people on the track. try again in a hour."
+}

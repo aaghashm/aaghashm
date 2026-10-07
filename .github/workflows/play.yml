@@ -1,0 +1,39 @@
+name: play
+
+on:
+  issues:
+    types: [opened]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  issues: write
+  actions: write
+
+concurrency:
+  group: track-state
+  cancel-in-progress: false
+
+jobs:
+  run:
+    if: github.event_name == 'workflow_dispatch' || github.event.issue.user.type == 'User'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      # issue data is read from the api by the script, never pasted in here.
+      # every run drains all open stop issues, whatever issue woke it.
+      - id: r
+        run: node scripts/reconcile.mjs
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+      # a flood left issues for later: queue one more run (dispatch is the one event GITHUB_TOKEN may start)
+      - if: steps.r.outputs.more == 'true'
+        run: gh workflow run play.yml -R "$REPO"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
