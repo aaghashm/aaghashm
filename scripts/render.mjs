@@ -323,8 +323,9 @@ function hurdle(i, h, T, { ls, ly }) {
   const legs = `<path d="M-6 ${HURDLE_CY + 9}V${GY}M6 ${HURDLE_CY + 9}V${GY}" stroke="${T.lockInk}" stroke-width="2"/>`;
   const ring = `<circle cy="${HURDLE_CY}" r="${HURDLE_R}" fill="none" stroke="${T.ink}" stroke-width="1.5"/>`;
   let shape;
-  if (h) {
-    // someone tried: a plain face
+  if (h && h.avatar) shape = legs + `<use href="#av${i}" y="${HURDLE_CY}"/>` + ring;
+  else if (h) {
+    // someone tried, but their face can't go up (new or empty account): a plain face
     shape = legs + `<circle cy="${HURDLE_CY}" r="${HURDLE_R}" fill="${T.lockFace}"/>`
       + `<circle cy="${HURDLE_CY - 3}" r="4.2" fill="${T.lockInk}"/><path d="M-7 ${HURDLE_CY + 9.6}a7 6.4 0 0 1 14 0Z" fill="${T.lockInk}"/>` + ring;
   } else {
@@ -469,7 +470,10 @@ function showMask(id, [a0, a1, b0, b1], w = W, h = H) {
     + `<mask id="${id}" maskUnits="userSpaceOnUse" x="0" y="0" width="${w}" height="${h}"><rect width="${w}" height="${h}" fill="url(#${id}g)"/></mask>`;
 }
 
+const avatarDefs = (state) => (state.hurdles || []).slice(0, 5).map((h, i) => h && h.avatar
+  ? `<image id="av${i}" x="-${HURDLE_R}" y="-${HURDLE_R}" width="${HURDLE_R * 2}" height="${HURDLE_R * 2}" preserveAspectRatio="xMidYMid slice" clip-path="url(#avc)" href="${h.avatar}"/>` : '').join('');
 const skyDef = (id, T, y2) => `<linearGradient id="${id}" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="0" y2="${y2}"><stop offset="0" stop-color="${T.sky0}"/><stop offset="1" stop-color="${T.sky1}"/></linearGradient>`;
+const AVC = `<clipPath id="avc" clipPathUnits="objectBoundingBox"><circle cx=".5" cy=".5" r=".5"/></clipPath>`;
 
 export function heroSvg(state, cfg, themeName, now = Date.now()) {
   const T = THEMES[themeName];
@@ -478,11 +482,11 @@ export function heroSvg(state, cfg, themeName, now = Date.now()) {
   const wide = wideScene(state, T, cfg, dark);
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">`
     + `<style>${css()}</style>`
-    + `<defs>`
+    + `<defs>${AVC}`
     + `<clipPath id="card"><rect width="${W}" height="${H}" rx="16"/></clipPath>`
     + skyDef('sky', T, 240)
     + showMask('mw', SHOW.wide)
-    + `${iconDefs()}</defs>`
+    + `${avatarDefs(state)}${iconDefs()}</defs>`
     + `<g id="wide"><g clip-path="url(#card)">${wide}</g></g>`
     + `</svg>\n`;
 }

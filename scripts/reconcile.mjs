@@ -15,6 +15,7 @@ import { renderAll, ROOT } from './render.mjs';
 
 const env = process.env;
 const API = (env.GITHUB_API_URL || 'https://api.github.com').replace(/\/$/, '');
+const AVATARS = (env.AVATAR_BASE || 'https://avatars.githubusercontent.com').replace(/\/$/, '');
 const REPO = env.REPO || 'aaghashm/aaghashm';
 const USER = env.PROFILE_USER || REPO.split('/')[0];
 const BRANCH = env.BRANCH || 'main';
@@ -22,7 +23,8 @@ const BOT = { name: 'github-actions[bot]', email: '41898282+github-actions[bot]@
 export const PT = 'America/Los_Angeles';
 export const LOGIN_RE = /^[a-z\d](?:[a-z\d]|-(?=[a-z\d])){0,38}$/i;
 const TITLES = { stop: 'stop', 'stop him': 'stop' };
-const BUSY_MAX = 20;
+// 5 avatars at <= 6KB keep a hero under 80KB, fonts included (most 48px avatars are 1-4KB)
+const BUSY_MAX = 20, AVATAR_MAX = 6 * 1024, AVATAR_SIZES = [48, 32];
 // one run handles at most this many game issues, or stops taking new ones after this long.
 // leftovers make the run dispatch another one, so a flood never stalls past the 5 min job limit.
 const PER_RUN = +(env.PER_RUN || 40), PASS_BUDGET = 120e3, REPLY_BUDGET = 240e3, ISSUE_PAGES = 10;
@@ -36,6 +38,20 @@ export const seenKey = (login, kind) => createHash('sha256').update(login.toLowe
 
 export function stopLine(lines, n) {
   return lines.milestones[String(n)] || lines.stop[(n - 1) % lines.stop.length];
+}
+
+// can this user's face go on the track?
+export function eligible(user, block, now) {
+  if (!user || user.type !== 'User') return false;
+  if (block.ids.includes(user.id) || block.logins.map((l) => l.toLowerCase()).includes(String(user.login).toLowerCase())) return false;
+  if (now - Date.parse(user.created_at) < 30 * 864e5) return false;
+  return (user.public_repos || 0) >= 1 || (user.followers || 0) >= 1;
+}
+
+export function sniff(buf) {
+  if (buf.length >= 8 && buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47) return 'image/png';
+  if (buf.length >= 3 && buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) return 'image/jpeg';
+  return null;
 }
 
 export function prune(state, now, todayPT) {
@@ -72,6 +88,7 @@ async function api(method, path, body, { ok = [] } = {}) {
   const text = await res.text();
   return { status: res.status, data: text ? JSON.parse(text) : null };
 }
+const getUser = async (login) => (await api('GET', `/users/${encodeURIComponent(login)}`, null, { ok: [404] })).data;
 
 // all open issues, oldest first. non-game issues stay open on purpose, so read past the first page.
 async function openIssues() {
@@ -84,14 +101,29 @@ async function openIssues() {
   return all;
 }
 
+async function fetchAvatar(id) {
+  for (const size of AVATAR_SIZES) {
+    try {
+      const res = await fetch(`${AVATARS}/u/${id}?s=${size}&v=4`, { signal: AbortSignal.timeout(5000) });
+      if (!res.ok) return null;
+      const buf = Buffer.from(await res.arrayBuffer());
+      const mime = sniff(buf);
+      if (!mime) return null;
+      if (buf.length <= AVATAR_MAX) return `data:${mime};base64,${buf.toString('base64')}`;
+    } catch { return null; }
+  }
+  return null; // too big even small: plain hurdle
+}
+
 // ---------- git ----------
 const git = (...args) => execFileSync('git', args, { cwd: ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
 
 // ---------- one pass over state ----------
 async function pass(now, t0) {
   const todayPT = dateIn(PT, now);
-  const sp = join(ROOT, 'data/state.json');
+  const sp = join(ROOT, 'data/state.json'), bp = join(ROOT, 'data/blocklist.json');
   const state = existsSync(sp) ? { ...freshState(), ...JSON.parse(readFileSync(sp, 'utf8')) } : freshState();
+  const block = JSON.parse(readFileSync(bp, 'utf8'));
   const lines = JSON.parse(readFileSync(join(ROOT, 'data/lines.json'), 'utf8'));
   const msgs = [], replies = [];
 
@@ -128,13 +160,15 @@ async function pass(now, t0) {
       const n = state.tries;
       state.seen[key] = todayPT;
       state.recent.push(now.toISOString().replace(/\.\d+Z$/, 'Z'));
-      state.hurdles.unshift({ n, at: todayPT });
+      const u = await getUser(login);
+      const avatar = eligible(u, block, now) ? await fetchAvatar(u.id) : null;
+      state.hurdles.unshift({ id: u?.id ?? null, n, avatar, at: todayPT });
       state.hurdles = state.hurdles.slice(0, 5);
       state.handled.push(is.number);
-      state.outcomes[is.number] = `s${n}`;
-      replies.push({ num: is.number, type: 'stop', n });
+      state.outcomes[is.number] = `s${n}${avatar ? '' : 'p'}`;
+      replies.push({ num: is.number, type: 'stop', n, plain: !avatar });
       msgs.push(`stop attempt #${n}`);
-      log(`#${is.number}: stop attempt ${n}`);
+      log(`#${is.number}: stop attempt ${n} (${avatar ? 'avatar' : 'plain hurdle'})`);
     }
   }
   // replies alone (repeat, busy, spam) change nothing worth a commit
@@ -147,10 +181,12 @@ async function pass(now, t0) {
   return { state, replies, msgs, lines, more };
 }
 
-// "s12" is stop #12
-const decode = (o) => !o ? { type: 'pending' } : { type: 'stop', n: parseInt(o.slice(1), 10) };
+// "s12" stop #12 with a face, "s12p" with a plain one
+const decode = (o) => !o ? { type: 'pending' } : { type: 'stop', n: parseInt(o.slice(1), 10), plain: o.endsWith('p') };
 
 // ---------- 4. replies, after a successful push ----------
+// no hero image in replies: it would pin other players' faces into this comment forever,
+// so taking a face off the track would never be complete.
 export function replyText(r, lines) {
   switch (r.type) {
     // every stop gets the joke from the hero first, then the line for this try
@@ -159,6 +195,7 @@ export function replyText(r, lines) {
         ...lines.stopOpen.split('\n\n').map((l) => `**${l}**`),
         stopLine(lines, r.n),
         lines.stopTail.replaceAll('{n}', r.n).replaceAll('{user}', USER),
+        ...(r.plain ? [lines.plainNote] : []),
         lines.stopEnd,
       ].join('\n\n');
     case 'repeat': return lines.repeat;

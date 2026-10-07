@@ -14,6 +14,7 @@
     "1000": "1000 tries. he didn't even slow down."
   },
   "stopTail": "you're hurdle #{n} on his profile now: https://github.com/{user}",
+  "plainNote": "no face this time. new or empty accounts get a plain one.",
   "stopEnd": "stopped: 0. the real one is playable: https://aaghashm.github.io",
   "repeat": "one try a day. he's still running.\n\nthe real one is playable: https://aaghashm.github.io",
   "busy": "too many people on the track. try again in a hour."
