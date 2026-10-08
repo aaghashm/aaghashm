@@ -71,5 +71,6 @@
  "assets": {
   "heroDark": "hero-dark-bb2c4ce9.svg",
   "heroLight": "hero-light-824eaafb.svg"
- }
+ },
+ "modIssue": null
 }

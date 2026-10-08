@@ -28,6 +28,7 @@ const BUSY_MAX = 20, AVATAR_MAX = 6 * 1024, AVATAR_SIZES = [48, 32];
 // one run handles at most this many game issues, or stops taking new ones after this long.
 // leftovers make the run dispatch another one, so a flood never stalls past the 5 min job limit.
 const PER_RUN = +(env.PER_RUN || 40), PASS_BUDGET = 120e3, REPLY_BUDGET = 240e3, ISSUE_PAGES = 10;
+const MOD_TITLE = 'faces on the track';
 const log = (...a) => console.log(...a);
 
 // ---------- pure helpers ----------
@@ -73,7 +74,7 @@ export function prune(state, now, todayPT) {
 export function freshState() {
   return {
     version: 1, tries: 0, stops: 0, knocks: 0, lastKnock: null, hurdles: [], seen: {}, recent: [], handled: [], outcomes: {},
-    streak: { repo: 'persistent-stopwatch', current: 0, start: null, best: 0 }, repos: [], lastDaily: null, assets: {},
+    streak: { repo: 'persistent-stopwatch', current: 0, start: null, best: 0 }, repos: [], lastDaily: null, assets: {}, modIssue: null,
   };
 }
 
@@ -114,6 +115,23 @@ export function parseRemove(s) {
   return LOGIN_RE.test(t) ? { login: t } : t ? { bad: true } : null;
 }
 
+// the owner hears about every new face, once, in one locked issue only he and the bot can write in
+async function notifyFace(state, n, login) {
+  if (!state.modIssue) {
+    const body = 'every new face on the track gets one line here, so you can check it.\n\n'
+      + 'to take one off: actions > play > run workflow > remove: the hurdle number (like `37`) or the login.';
+    const { data } = await api('POST', `/repos/${REPO}/issues`, { title: MOD_TITLE, body });
+    state.modIssue = modIssueNum = data.number;
+    await api('PUT', `/repos/${REPO}/issues/${data.number}/lock`, { lock_reason: 'resolved' }, { ok: [403, 422] });
+  }
+  await api('POST', `/repos/${REPO}/issues/${state.modIssue}/comments`, {
+    body: `@${USER} new face: hurdle **#${n}** is [${login}](https://github.com/${login}).\n\nnot ok? actions > play > run workflow > remove: \`${n}\``,
+  });
+}
+// both survive a push-race retry in the same process, so a retry never notifies twice or opens a second log issue
+const notified = new Map();
+let modIssueNum = null;
+
 async function fetchAvatar(id) {
   for (const size of AVATAR_SIZES) {
     try {
@@ -137,6 +155,7 @@ async function pass(now, t0) {
   const sp = join(ROOT, 'data/state.json'), bp = join(ROOT, 'data/blocklist.json');
   const state = existsSync(sp) ? { ...freshState(), ...JSON.parse(readFileSync(sp, 'utf8')) } : freshState();
   const block = JSON.parse(readFileSync(bp, 'utf8'));
+  if (!state.modIssue && modIssueNum) state.modIssue = modIssueNum;
   const lines = JSON.parse(readFileSync(join(ROOT, 'data/lines.json'), 'utf8'));
   const msgs = [], replies = [];
   let blockChanged = false;
@@ -195,7 +214,12 @@ async function pass(now, t0) {
       state.seen[key] = todayPT;
       state.recent.push(now.toISOString().replace(/\.\d+Z$/, 'Z'));
       const u = await getUser(login);
-      const avatar = eligible(u, block, now) ? await fetchAvatar(u.id) : null;
+      let avatar = eligible(u, block, now) ? await fetchAvatar(u.id) : null;
+      // no notice, no face: if telling the owner fails, the hurdle stays plain
+      if (avatar && !notified.has(is.number)) {
+        try { await notifyFace(state, n, u.login); notified.set(is.number, true); }
+        catch (e) { avatar = null; log(`#${is.number}: face notice failed, plain hurdle (${e.message})`); }
+      }
       state.hurdles.unshift({ id: u?.id ?? null, n, avatar, at: todayPT });
       state.hurdles = state.hurdles.slice(0, 5);
       state.handled.push(is.number);
