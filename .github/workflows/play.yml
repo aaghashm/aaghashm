@@ -25,7 +25,7 @@ jobs:
         with:
           node-version: 22
       # issue data is read from the api by the script, never pasted in here.
-      # every run drains all open stop issues, whatever issue woke it.
+      # every run drains all open stop/knock issues, whatever issue woke it.
       - id: r
         run: node scripts/reconcile.mjs
         env:

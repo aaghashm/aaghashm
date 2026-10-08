@@ -205,7 +205,7 @@ function fontCss() {
   return FONT_CSS;
 }
 
-function css() {
+function css(wobble) {
   const kf = [];
   START_X.forEach((x0, i) => {
     const pts = hurdlePoints(x0);
@@ -242,6 +242,7 @@ ${START_X.map((_, i) => `.h${i}{animation-name:h${i}}`).join('')}
 @keyframes fl{from{transform:scaleY(1)}to{transform:scaleY(-.7)}}
 .tk{animation:tk 60s steps(60) infinite}@keyframes tk{to{transform:rotate(360deg)}}
 .lv{animation:lv 2s ease-in-out infinite}@keyframes lv{50%{opacity:.25}}
+${wobble ? '.wob{animation:wob 3s ease-in-out infinite;transform-box:fill-box;transform-origin:50% 100%}@keyframes wob{0%,100%{transform:rotate(0)}10%{transform:rotate(-6deg)}20%{transform:rotate(6deg)}30%{transform:rotate(0)}}' : ''}
 @media (prefers-reduced-motion:reduce){*{animation:none!important}}
 `.trim().replace(/\n+/g, '\n');
 }
@@ -273,9 +274,9 @@ function repoTile(r, x, y, cfg) {
     + inner + '</g>';
 }
 
-function lockTile(x, T) {
+function lockTile(x, T, cls) {
   const y = GY - TILE;
-  return `<g class="tile"><rect x="${x}" y="${y}" width="${TILE}" height="${TILE}" rx="6" fill="${T.lockShade}"/>`
+  return `<g class="tile${cls ? ' ' + cls : ''}"><rect x="${x}" y="${y}" width="${TILE}" height="${TILE}" rx="6" fill="${T.lockShade}"/>`
     + `<rect x="${x}" y="${y}" width="${TILE}" height="${TILE - 2.5}" rx="6" fill="${T.lockFace}"/>`
     + icon('padlock', x + 6, y + 5, 14, T.lockInk) + '</g>';
 }
@@ -357,8 +358,9 @@ function action(state, T, { ls, ly, mask }) {
 function tiles(layout, T, cfg) {
   const out = [];
   const { slots } = layout;
+  const wobbleSlot = slots.find((s) => s.kind === 'lock' && s.gap === 0 && s.k === Math.floor((s.of - 1) / 2));
   for (const s of slots) {
-    if (s.kind === 'lock') out.push(lockTile(s.x, T));
+    if (s.kind === 'lock') out.push(lockTile(s.x, T, s === wobbleSlot ? 'wob' : ''));
     else s.tower.repos.forEach((r, k) => out.push(repoTile(r, s.x, GY - TILE - k * STACK, cfg)));
   }
   return out.join('');
@@ -470,6 +472,8 @@ function showMask(id, [a0, a1, b0, b1], w = W, h = H) {
     + `<mask id="${id}" maskUnits="userSpaceOnUse" x="0" y="0" width="${w}" height="${h}"><rect width="${w}" height="${h}" fill="url(#${id}g)"/></mask>`;
 }
 
+export const wobbling = (state, now = Date.now()) => !!state.lastKnock && now - Date.parse(state.lastKnock) < 864e5;
+
 const avatarDefs = (state) => (state.hurdles || []).slice(0, 5).map((h, i) => h && h.avatar
   ? `<image id="av${i}" x="-${HURDLE_R}" y="-${HURDLE_R}" width="${HURDLE_R * 2}" height="${HURDLE_R * 2}" preserveAspectRatio="xMidYMid slice" clip-path="url(#avc)" href="${h.avatar}"/>` : '').join('');
 const skyDef = (id, T, y2) => `<linearGradient id="${id}" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="0" y2="${y2}"><stop offset="0" stop-color="${T.sky0}"/><stop offset="1" stop-color="${T.sky1}"/></linearGradient>`;
@@ -477,11 +481,12 @@ const AVC = `<clipPath id="avc" clipPathUnits="objectBoundingBox"><circle cx=".5
 
 export function heroSvg(state, cfg, themeName, now = Date.now()) {
   const T = THEMES[themeName];
+  const wobble = wobbling(state, now);
   usedIcons = new Set();
   const dark = themeName === 'dark';
   const wide = wideScene(state, T, cfg, dark);
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">`
-    + `<style>${css()}</style>`
+    + `<style>${css(wobble)}</style>`
     + `<defs>${AVC}`
     + `<clipPath id="card"><rect width="${W}" height="${H}" rx="16"/></clipPath>`
     + skyDef('sky', T, 240)

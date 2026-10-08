@@ -1,5 +1,5 @@
 // the one entry point for every run (issue opened, manual dispatch).
-// it never trusts its own trigger: it drains every open stop issue,
+// it never trusts its own trigger: it drains every open stop/knock issue,
 // renders, commits, pushes, then replies.
 //
 // untrusted input (issue titles, logins) is only compared against fixed values.
@@ -22,7 +22,7 @@ const BRANCH = env.BRANCH || 'main';
 const BOT = { name: 'github-actions[bot]', email: '41898282+github-actions[bot]@users.noreply.github.com' };
 export const PT = 'America/Los_Angeles';
 export const LOGIN_RE = /^[a-z\d](?:[a-z\d]|-(?=[a-z\d])){0,38}$/i;
-const TITLES = { stop: 'stop', 'stop him': 'stop' };
+const TITLES = { stop: 'stop', 'stop him': 'stop', knock: 'knock' };
 // 5 avatars at <= 6KB keep a hero under 80KB, fonts included (most 48px avatars are 1-4KB)
 const BUSY_MAX = 20, AVATAR_MAX = 6 * 1024, AVATAR_SIZES = [48, 32];
 // one run handles at most this many game issues, or stops taking new ones after this long.
@@ -38,6 +38,11 @@ export const seenKey = (login, kind) => createHash('sha256').update(login.toLowe
 
 export function stopLine(lines, n) {
   return lines.milestones[String(n)] || lines.stop[(n - 1) % lines.stop.length];
+}
+export function knockLine(lines, k) {
+  let t = lines.knock[0].text;
+  for (const s of lines.knock) if (k >= s.from) t = s.text;
+  return t + '\n\n' + lines.knockTail.replace('{k}', k);
 }
 
 // can this user's face go on the track?
@@ -67,7 +72,7 @@ export function prune(state, now, todayPT) {
 
 export function freshState() {
   return {
-    version: 1, tries: 0, stops: 0, hurdles: [], seen: {}, recent: [], handled: [], outcomes: {},
+    version: 1, tries: 0, stops: 0, knocks: 0, lastKnock: null, hurdles: [], seen: {}, recent: [], handled: [], outcomes: {},
     streak: { repo: 'persistent-stopwatch', current: 0, start: null, best: 0 }, repos: [], lastDaily: null, assets: {},
   };
 }
@@ -152,10 +157,10 @@ async function pass(now, t0) {
     if (seen) {
       perRun[key] = (perRun[key] || 0) + 1;
       // one reply per person per run, the rest close quietly (spam guard)
-      replies.push({ num: is.number, type: perRun[key] > 1 ? 'silent' : 'repeat' });
+      replies.push({ num: is.number, type: perRun[key] > 1 ? 'silent' : kind === 'knock' ? 'knockRepeat' : 'repeat' });
     } else if (recent.length >= BUSY_MAX) {
       replies.push({ num: is.number, type: 'busy' });
-    } else {
+    } else if (kind === 'stop') {
       state.tries++;
       const n = state.tries;
       state.seen[key] = todayPT;
@@ -169,6 +174,15 @@ async function pass(now, t0) {
       replies.push({ num: is.number, type: 'stop', n, plain: !avatar });
       msgs.push(`stop attempt #${n}`);
       log(`#${is.number}: stop attempt ${n} (${avatar ? 'avatar' : 'plain hurdle'})`);
+    } else {
+      state.knocks++;
+      state.lastKnock = now.toISOString().replace(/\.\d+Z$/, 'Z');
+      state.seen[key] = todayPT;
+      state.handled.push(is.number);
+      state.outcomes[is.number] = `k${state.knocks}`;
+      replies.push({ num: is.number, type: 'knock', k: state.knocks });
+      msgs.push(`knock #${state.knocks}`);
+      log(`#${is.number}: knock ${state.knocks}`);
     }
   }
   // replies alone (repeat, busy, spam) change nothing worth a commit
@@ -181,8 +195,8 @@ async function pass(now, t0) {
   return { state, replies, msgs, lines, more };
 }
 
-// "s12" stop #12 with a face, "s12p" with a plain one
-const decode = (o) => !o ? { type: 'pending' } : { type: 'stop', n: parseInt(o.slice(1), 10), plain: o.endsWith('p') };
+// "s12" stop #12 with a face, "s12p" with a plain one, "k3" knock #3
+const decode = (o) => !o ? { type: 'pending' } : o[0] === 's' ? { type: 'stop', n: parseInt(o.slice(1), 10), plain: o.endsWith('p') } : { type: 'knock', k: +o.slice(1) };
 
 // ---------- 4. replies, after a successful push ----------
 // no hero image in replies: it would pin other players' faces into this comment forever,
@@ -198,7 +212,9 @@ export function replyText(r, lines) {
         ...(r.plain ? [lines.plainNote] : []),
         lines.stopEnd,
       ].join('\n\n');
+    case 'knock': return knockLine(lines, r.k);
     case 'repeat': return lines.repeat;
+    case 'knockRepeat': return lines.knockRepeat;
     case 'busy': return lines.busy;
     default: return null;
   }
@@ -231,7 +247,7 @@ export async function main() {
   const t0 = Date.now();
 
   // no early exit for non-game issues: github keeps one waiting run per group and cancels it when a
-  // newer one arrives, so whichever run starts has to drain every open stop, whatever woke it.
+  // newer one arrives, so whichever run starts has to drain every open stop/knock, whatever woke it.
   let out;
   for (let attempt = 1; ; attempt++) {
     out = await pass(now, t0);

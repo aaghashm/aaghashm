@@ -2,6 +2,8 @@
  "version": 1,
  "tries": 0,
  "stops": 0,
+ "knocks": 0,
+ "lastKnock": null,
  "hurdles": [],
  "seen": {},
  "recent": [],
@@ -9,9 +11,9 @@
  "outcomes": {},
  "streak": {
   "repo": "persistent-stopwatch",
-  "current": 102,
+  "current": 103,
   "start": "2026-06-28",
-  "best": 102
+  "best": 103
  },
  "repos": [
   {
@@ -65,9 +67,9 @@
    "created": "2026-06-28T22:05:45Z"
   }
  ],
- "lastDaily": "2026-10-07",
+ "lastDaily": "2026-10-08",
  "assets": {
-  "heroDark": "hero-dark-816a6614.svg",
-  "heroLight": "hero-light-dada1ef4.svg"
+  "heroDark": "hero-dark-bb2c4ce9.svg",
+  "heroLight": "hero-light-824eaafb.svg"
  }
 }
