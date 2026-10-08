@@ -106,6 +106,14 @@ async function openIssues() {
   return all;
 }
 
+// "#37", "37" -> hurdle number. anything else is treated as a login.
+export function parseRemove(s) {
+  const t = String(s || '').trim();
+  const m = t.match(/^#?(\d{1,9})$/);
+  if (m) return { n: +m[1] };
+  return LOGIN_RE.test(t) ? { login: t } : t ? { bad: true } : null;
+}
+
 async function fetchAvatar(id) {
   for (const size of AVATAR_SIZES) {
     try {
@@ -123,7 +131,7 @@ async function fetchAvatar(id) {
 // ---------- git ----------
 const git = (...args) => execFileSync('git', args, { cwd: ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
 
-// ---------- one pass over state ----------
+// ---------- one pass over state (steps 1-3) ----------
 async function pass(now, t0) {
   const todayPT = dateIn(PT, now);
   const sp = join(ROOT, 'data/state.json'), bp = join(ROOT, 'data/blocklist.json');
@@ -131,8 +139,29 @@ async function pass(now, t0) {
   const block = JSON.parse(readFileSync(bp, 'utf8'));
   const lines = JSON.parse(readFileSync(join(ROOT, 'data/lines.json'), 'utf8'));
   const msgs = [], replies = [];
+  let blockChanged = false;
 
-  // 1. open game issues, oldest first
+  // 1. owner removes someone, by hurdle number ("37" / "#37") or login
+  const rm = parseRemove(env.REMOVE_LOGIN);
+  if (rm?.bad) log('remove: not a hurdle number or a valid login, ignored');
+  else if (rm?.n != null && !state.hurdles.some((h) => h.n === rm.n)) log(`remove: hurdle #${rm.n} is not on the track, nothing to do`);
+  else if (rm) {
+    let id = null;
+    if (rm.n != null) id = state.hurdles.find((h) => h.n === rm.n).id;
+    else {
+      const u = await getUser(rm.login);
+      id = u?.id ?? null;
+      if (!block.logins.map((l) => l.toLowerCase()).includes(rm.login.toLowerCase())) block.logins.push(rm.login);
+    }
+    if (id != null && !block.ids.includes(id)) block.ids.push(id);
+    blockChanged = true;
+    let n = 0;
+    for (const h of state.hurdles) if (id != null && h.id === id && h.avatar) { h.avatar = null; n++; }
+    msgs.push('remove a hurdle');
+    log(`remove: blocked, ${n} hurdle(s) cleared`);
+  }
+
+  // 2. open game issues, oldest first
   let more = false;
   const issues = await openIssues();
   const handled = new Set(state.handled);
@@ -146,7 +175,7 @@ async function pass(now, t0) {
     taken++;
     if (handled.has(is.number)) { replies.push({ num: is.number, ...decode(state.outcomes?.[is.number]) }); continue; }
     const login = String(is.user.login || '');
-    // 2. classify
+    // 3. classify
     if (!LOGIN_RE.test(login)) { replies.push({ num: is.number, type: 'silent' }); continue; }
     const key = seenKey(login, kind);
     // a repeat if they were already counted on or after the day this issue was opened.
@@ -189,18 +218,19 @@ async function pass(now, t0) {
   if (!msgs.length) return { state, replies, msgs, lines, more };
   prune(state, now, todayPT);
 
-  // 3. render + write
+  // 5a. render + write
   renderAll(state, ROOT, now.getTime());
   writeFileSync(sp, JSON.stringify(state, null, 1) + '\n');
+  if (blockChanged) writeFileSync(bp, JSON.stringify(block, null, 1) + '\n');
   return { state, replies, msgs, lines, more };
 }
 
 // "s12" stop #12 with a face, "s12p" with a plain one, "k3" knock #3
 const decode = (o) => !o ? { type: 'pending' } : o[0] === 's' ? { type: 'stop', n: parseInt(o.slice(1), 10), plain: o.endsWith('p') } : { type: 'knock', k: +o.slice(1) };
 
-// ---------- 4. replies, after a successful push ----------
+// ---------- 6. replies, after a successful push ----------
 // no hero image in replies: it would pin other players' faces into this comment forever,
-// so taking a face off the track would never be complete.
+// so removing a face from the track would never be complete.
 export function replyText(r, lines) {
   switch (r.type) {
     // every stop gets the joke from the hero first, then the line for this try

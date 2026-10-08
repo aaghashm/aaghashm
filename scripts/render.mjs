@@ -326,7 +326,7 @@ function hurdle(i, h, T, { ls, ly }) {
   let shape;
   if (h && h.avatar) shape = legs + `<use href="#av${i}" y="${HURDLE_CY}"/>` + ring;
   else if (h) {
-    // someone tried, but their face can't go up (new or empty account): a plain face
+    // someone tried, but their face can't go up (new or empty account, or removed): a plain face
     shape = legs + `<circle cy="${HURDLE_CY}" r="${HURDLE_R}" fill="${T.lockFace}"/>`
       + `<circle cy="${HURDLE_CY - 3}" r="4.2" fill="${T.lockInk}"/><path d="M-7 ${HURDLE_CY + 9.6}a7 6.4 0 0 1 14 0Z" fill="${T.lockInk}"/>` + ring;
   } else {

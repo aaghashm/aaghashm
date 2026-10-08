@@ -4,6 +4,11 @@ on:
   issues:
     types: [opened]
   workflow_dispatch:
+    inputs:
+      remove:
+        description: "hurdle number (like 37) or login to take off the track and block"
+        required: false
+        default: ""
 
 permissions:
   contents: write
@@ -31,6 +36,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO: ${{ github.repository }}
+          REMOVE_LOGIN: ${{ inputs.remove }}
       # a flood left issues for later: queue one more run (dispatch is the one event GITHUB_TOKEN may start)
       - if: steps.r.outputs.more == 'true'
         run: gh workflow run play.yml -R "$REPO"
