@@ -36,6 +36,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO: ${{ github.repository }}
+          TRIGGER: ${{ github.event_name }}
           REMOVE_LOGIN: ${{ inputs.remove }}
       # a flood left issues for later: queue one more run (dispatch is the one event GITHUB_TOKEN may start)
       - if: steps.r.outputs.more == 'true'

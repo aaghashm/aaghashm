@@ -1,11 +1,12 @@
-// the one entry point for every run (issue opened, manual dispatch).
-// it never trusts its own trigger: it drains every open stop/knock issue,
-// renders, commits, pushes, then replies.
+// the one entry point for every run (issue opened, daily cron, manual dispatch).
+// it never trusts its own trigger: it drains every open stop/knock issue, runs the
+// daily refresh if today's hasn't happened yet, renders, commits, pushes, then replies.
 //
 // untrusted input (issue titles, logins) is only compared against fixed values.
 // it never reaches a shell: git runs through execFileSync with an args array.
 //
-// node scripts/reconcile.mjs          (needs GH_TOKEN, REPO)
+// node scripts/reconcile.mjs          normal run (needs GH_TOKEN, REPO)
+// node scripts/reconcile.mjs --local  daily refresh + render only, no issues, no git
 import { createHash } from 'node:crypto';
 import { readFileSync, writeFileSync, appendFileSync, existsSync, realpathSync } from 'node:fs';
 import { join } from 'node:path';
@@ -37,6 +38,14 @@ export const addDays = (iso, n) => new Date(Date.parse(iso + 'T12:00:00Z') + n *
 export const gameKind = (title) => TITLES[String(title ?? '').trim().toLowerCase()] || null;
 export const seenKey = (login, kind) => createHash('sha256').update(login.toLowerCase() + ':' + kind).digest('hex').slice(0, 16);
 
+// commit dates (iso strings) -> {current, start}. counts back from today, or from yesterday if today has none yet.
+export function streakFrom(dates, today, tz = PT) {
+  const days = new Set(dates.map((d) => dateIn(tz, new Date(d))));
+  let d = days.has(today) ? today : addDays(today, -1), n = 0, start = null;
+  while (days.has(d)) { n++; start = d; d = addDays(d, -1); }
+  return { current: n, start };
+}
+
 export function stopLine(lines, n) {
   return lines.milestones[String(n)] || lines.stop[(n - 1) % lines.stop.length];
 }
@@ -58,6 +67,13 @@ export function sniff(buf) {
   if (buf.length >= 8 && buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47) return 'image/png';
   if (buf.length >= 3 && buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) return 'image/jpeg';
   return null;
+}
+
+export function pickRepos(raw, cfg) {
+  return raw
+    .filter((r) => !r.fork && !r.private && (!r.archived || cfg.include?.includes(r.name)) && !cfg.exclude.includes(r.name))
+    .map((r) => ({ name: r.name, lang: r.language || null, created: r.created_at }))
+    .sort((a, b) => a.created.localeCompare(b.created));
 }
 
 export function prune(state, now, todayPT) {
@@ -149,13 +165,14 @@ async function fetchAvatar(id) {
 // ---------- git ----------
 const git = (...args) => execFileSync('git', args, { cwd: ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
 
-// ---------- one pass over state (steps 1-3) ----------
-async function pass(now, t0) {
+// ---------- one pass over state (steps 1-4) ----------
+async function pass(now, trigger, t0) {
   const todayPT = dateIn(PT, now);
   const sp = join(ROOT, 'data/state.json'), bp = join(ROOT, 'data/blocklist.json');
   const state = existsSync(sp) ? { ...freshState(), ...JSON.parse(readFileSync(sp, 'utf8')) } : freshState();
   const block = JSON.parse(readFileSync(bp, 'utf8'));
   if (!state.modIssue && modIssueNum) state.modIssue = modIssueNum;
+  const cfg = JSON.parse(readFileSync(join(ROOT, 'data/repos.json'), 'utf8'));
   const lines = JSON.parse(readFileSync(join(ROOT, 'data/lines.json'), 'utf8'));
   const msgs = [], replies = [];
   let blockChanged = false;
@@ -182,61 +199,94 @@ async function pass(now, t0) {
 
   // 2. open game issues, oldest first
   let more = false;
-  const issues = await openIssues();
-  const handled = new Set(state.handled);
-  const perRun = {};
-  let taken = 0;
-  for (const is of issues) {
-    if (is.pull_request || is.user?.type !== 'User') continue;
-    const kind = gameKind(is.title);
-    if (!kind) continue;
-    if (taken >= PER_RUN || Date.now() - t0 > PASS_BUDGET) { more = true; break; }
-    taken++;
-    if (handled.has(is.number)) { replies.push({ num: is.number, ...decode(state.outcomes?.[is.number]) }); continue; }
-    const login = String(is.user.login || '');
-    // 3. classify
-    if (!LOGIN_RE.test(login)) { replies.push({ num: is.number, type: 'silent' }); continue; }
-    const key = seenKey(login, kind);
-    // a repeat if they were already counted on or after the day this issue was opened.
-    // so a repeat whose reply failed yesterday is still a repeat today, not a new try.
-    const opened = is.created_at ? dateIn(PT, new Date(is.created_at)) : todayPT;
-    const seen = !!state.seen[key] && state.seen[key] >= opened;
-    const recent = state.recent.filter((t) => now - Date.parse(t) < 3600e3);
-    if (seen) {
-      perRun[key] = (perRun[key] || 0) + 1;
-      // one reply per person per run, the rest close quietly (spam guard)
-      replies.push({ num: is.number, type: perRun[key] > 1 ? 'silent' : kind === 'knock' ? 'knockRepeat' : 'repeat' });
-    } else if (recent.length >= BUSY_MAX) {
-      replies.push({ num: is.number, type: 'busy' });
-    } else if (kind === 'stop') {
-      state.tries++;
-      const n = state.tries;
-      state.seen[key] = todayPT;
-      state.recent.push(now.toISOString().replace(/\.\d+Z$/, 'Z'));
-      const u = await getUser(login);
-      let avatar = eligible(u, block, now) ? await fetchAvatar(u.id) : null;
-      // no notice, no face: if telling the owner fails, the hurdle stays plain
-      if (avatar && !notified.has(is.number)) {
-        try { await notifyFace(state, n, u.login); notified.set(is.number, true); }
-        catch (e) { avatar = null; log(`#${is.number}: face notice failed, plain hurdle (${e.message})`); }
+  if (!env.LOCAL) {
+    const issues = await openIssues();
+    const handled = new Set(state.handled);
+    const perRun = {};
+    let taken = 0;
+    for (const is of issues) {
+      if (is.pull_request || is.user?.type !== 'User') continue;
+      const kind = gameKind(is.title);
+      if (!kind) continue;
+      if (taken >= PER_RUN || Date.now() - t0 > PASS_BUDGET) { more = true; break; }
+      taken++;
+      if (handled.has(is.number)) { replies.push({ num: is.number, ...decode(state.outcomes?.[is.number]) }); continue; }
+      const login = String(is.user.login || '');
+      // 3. classify
+      if (!LOGIN_RE.test(login)) { replies.push({ num: is.number, type: 'silent' }); continue; }
+      const key = seenKey(login, kind);
+      // a repeat if they were already counted on or after the day this issue was opened.
+      // so a repeat whose reply failed yesterday is still a repeat today, not a new try.
+      const opened = is.created_at ? dateIn(PT, new Date(is.created_at)) : todayPT;
+      const seen = !!state.seen[key] && state.seen[key] >= opened;
+      const recent = state.recent.filter((t) => now - Date.parse(t) < 3600e3);
+      if (seen) {
+        perRun[key] = (perRun[key] || 0) + 1;
+        // one reply per person per run, the rest close quietly (spam guard)
+        replies.push({ num: is.number, type: perRun[key] > 1 ? 'silent' : kind === 'knock' ? 'knockRepeat' : 'repeat' });
+      } else if (recent.length >= BUSY_MAX) {
+        replies.push({ num: is.number, type: 'busy' });
+      } else if (kind === 'stop') {
+        state.tries++;
+        const n = state.tries;
+        state.seen[key] = todayPT;
+        state.recent.push(now.toISOString().replace(/\.\d+Z$/, 'Z'));
+        const u = await getUser(login);
+        let avatar = eligible(u, block, now) ? await fetchAvatar(u.id) : null;
+        // no notice, no face: if telling the owner fails, the hurdle stays plain
+        if (avatar && !notified.has(is.number)) {
+          try { await notifyFace(state, n, u.login); notified.set(is.number, true); }
+          catch (e) { avatar = null; log(`#${is.number}: face notice failed, plain hurdle (${e.message})`); }
+        }
+        state.hurdles.unshift({ id: u?.id ?? null, n, avatar, at: todayPT });
+        state.hurdles = state.hurdles.slice(0, 5);
+        state.handled.push(is.number);
+        state.outcomes[is.number] = `s${n}${avatar ? '' : 'p'}`;
+        replies.push({ num: is.number, type: 'stop', n, plain: !avatar });
+        msgs.push(`stop attempt #${n}`);
+        log(`#${is.number}: stop attempt ${n} (${avatar ? 'avatar' : 'plain hurdle'})`);
+      } else {
+        state.knocks++;
+        state.lastKnock = now.toISOString().replace(/\.\d+Z$/, 'Z');
+        state.seen[key] = todayPT;
+        state.handled.push(is.number);
+        state.outcomes[is.number] = `k${state.knocks}`;
+        replies.push({ num: is.number, type: 'knock', k: state.knocks });
+        msgs.push(`knock #${state.knocks}`);
+        log(`#${is.number}: knock ${state.knocks}`);
       }
-      state.hurdles.unshift({ id: u?.id ?? null, n, avatar, at: todayPT });
-      state.hurdles = state.hurdles.slice(0, 5);
-      state.handled.push(is.number);
-      state.outcomes[is.number] = `s${n}${avatar ? '' : 'p'}`;
-      replies.push({ num: is.number, type: 'stop', n, plain: !avatar });
-      msgs.push(`stop attempt #${n}`);
-      log(`#${is.number}: stop attempt ${n} (${avatar ? 'avatar' : 'plain hurdle'})`);
-    } else {
-      state.knocks++;
-      state.lastKnock = now.toISOString().replace(/\.\d+Z$/, 'Z');
-      state.seen[key] = todayPT;
-      state.handled.push(is.number);
-      state.outcomes[is.number] = `k${state.knocks}`;
-      replies.push({ num: is.number, type: 'knock', k: state.knocks });
-      msgs.push(`knock #${state.knocks}`);
-      log(`#${is.number}: knock ${state.knocks}`);
     }
+  }
+
+  // 4. daily refresh
+  if (state.lastDaily !== todayPT || trigger === 'schedule') {
+    try {
+      const raw = [];
+      for (let p = 1; p <= 3; p++) {
+        const { data } = await api('GET', `/users/${USER}/repos?type=owner&per_page=100&page=${p}`);
+        raw.push(...data);
+        if (data.length < 100) break;
+      }
+      const repos = pickRepos(raw, cfg);
+      if (repos.length) state.repos = repos;
+    } catch (e) { log('daily: repos kept, ' + e.message); }
+    try {
+      const since = addDays(todayPT, -400) + 'T00:00:00Z', dates = [];
+      for (let p = 1; p <= 10; p++) {
+        const { data } = await api('GET', `/repos/${USER}/${cfg.flag}/commits?since=${since}&per_page=100&page=${p}`);
+        for (const c of data) {
+          const a = c.author, name = c.commit?.author?.name || '';
+          if (a?.type === 'Bot' || /\[bot\]$/i.test(a?.login || '') || /\[bot\]$/i.test(name)) continue;
+          dates.push(c.commit.author.date);
+        }
+        if (data.length < 100) break;
+      }
+      const tz = env.STREAK_TZ || cfg.streakTz || PT;
+      const s = streakFrom(dates, dateIn(tz, now), tz);
+      state.streak = { repo: cfg.flag, current: s.current, start: s.start, best: Math.max(state.streak?.best || 0, s.current) };
+    } catch (e) { log('daily: streak kept, ' + e.message); }
+    state.lastDaily = todayPT;
+    msgs.push(`daily: day ${state.streak.current}`);
   }
   // replies alone (repeat, busy, spam) change nothing worth a commit
   if (!msgs.length) return { state, replies, msgs, lines, more };
@@ -299,12 +349,14 @@ async function reply(r, lines) {
 export async function main() {
   const now = env.NOW ? new Date(env.NOW) : new Date();
   const t0 = Date.now();
+  const trigger = env.TRIGGER || 'workflow_dispatch';
+  if (env.LOCAL) { const r = await pass(now, 'schedule', t0); log('local render:', r.state.assets, 'streak', r.state.streak.current); return; }
 
   // no early exit for non-game issues: github keeps one waiting run per group and cancels it when a
   // newer one arrives, so whichever run starts has to drain every open stop/knock, whatever woke it.
   let out;
   for (let attempt = 1; ; attempt++) {
-    out = await pass(now, t0);
+    out = await pass(now, trigger, t0);
     if (!git('status', '--porcelain')) { log('nothing changed, no commit'); break; }
     git('add', '-A');
     const msg = [...new Set(out.msgs)].join(', ') || 'update';
@@ -334,5 +386,6 @@ export async function main() {
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === realpathSync(process.argv[1])) {
+  if (process.argv.includes('--local')) env.LOCAL = '1';
   main().catch((e) => { console.error(e.message); process.exit(1); });
 }
