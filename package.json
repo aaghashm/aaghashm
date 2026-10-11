@@ -5,6 +5,7 @@
   "description": "profile readme: a runner on my real repo timeline. try to stop him.",
   "engines": { "node": ">=22" },
   "scripts": {
-    "render": "node scripts/render.mjs"
+    "render": "node scripts/render.mjs",
+    "test": "node --test scripts/test/*.test.mjs"
   }
 }

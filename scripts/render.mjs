@@ -1,5 +1,5 @@
 // builds the hero svgs (dark + light) and README.md from data/state.json.
-// run directly: node scripts/render.mjs
+// pure functions are exported for the tests. run directly: node scripts/render.mjs
 import { createHash } from 'node:crypto';
 import { readFileSync, writeFileSync, readdirSync, unlinkSync, existsSync, realpathSync } from 'node:fs';
 import { join, dirname } from 'node:path';
@@ -172,7 +172,7 @@ export function hurdlePoints(x0) {
   return pts.sort((a, b) => a[0] - b[0]).map(([t, x]) => [t, x, opacityAt(x)]);
 }
 
-// cubic-bezier easing (keeps the keyframes honest)
+// cubic-bezier easing, for the tests (and to keep keyframes honest)
 export function bezier([x1, y1, x2, y2], x) {
   let lo = 0, hi = 1, t = x;
   for (let i = 0; i < 40; i++) {

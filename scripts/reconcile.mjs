@@ -32,7 +32,7 @@ const PER_RUN = +(env.PER_RUN || 40), PASS_BUDGET = 120e3, REPLY_BUDGET = 240e3,
 const MOD_TITLE = 'faces on the track';
 const log = (...a) => console.log(...a);
 
-// ---------- pure helpers ----------
+// ---------- pure helpers (tested) ----------
 export const dateIn = (tz, d) => new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' }).format(d);
 export const addDays = (iso, n) => new Date(Date.parse(iso + 'T12:00:00Z') + n * 864e5).toISOString().slice(0, 10);
 export const gameKind = (title) => TITLES[String(title ?? '').trim().toLowerCase()] || null;
