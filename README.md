@@ -1,8 +1,8 @@
 <!-- built from templates/README.md.tmpl. edit that, not this. -->
 <a href="https://aaghashm.github.io">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/aaghashm/aaghashm/main/assets/hero-dark-33781010.svg">
-    <img width="100%" alt="still running. a small runner on a track made of aaghashm's public repos since 19 sep 2022, with grey locked blocks for the quiet stretches. he stops at a hurdle and says he's done. then he says jk and jumps it." src="https://raw.githubusercontent.com/aaghashm/aaghashm/main/assets/hero-light-fefac727.svg">
+    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/aaghashm/aaghashm/main/assets/hero-dark-0094ef23.svg">
+    <img width="100%" alt="still running. a small runner on a track made of aaghashm's public repos since 19 sep 2022, with grey locked blocks for the quiet stretches. he stops at a hurdle and says he's done. then he says jk and jumps it." src="https://raw.githubusercontent.com/aaghashm/aaghashm/main/assets/hero-light-9d1acb7b.svg">
   </picture>
 </a>
 

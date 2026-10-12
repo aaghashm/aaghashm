@@ -5,7 +5,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   ROOT, layoutTimeline, crossTime, START_X, heroSvg, jumpAt, hurdlePoints, counterLine, sinceStart, iconInk,
-  RX, GY, HURDLE_CY, HURDLE_R, LOOP, F, WIDE, THEMES, streakLine, W, H, sansW, bubbleBox, SHOW, MARK, textW,
+  RX, GY, HURDLE_CY, HURDLE_R, LOOP, F, NARROW, WIDE, THEMES, streakLine, W, H, sansW, bubbleBox, SHOW, MARK, textW,
   opacityAt, BEHIND, STACK,
 } from '../render.mjs';
 import { streakFrom, pickRepos, prune, gameKind, eligible, sniff, stopLine, knockLine, LOGIN_RE, dateIn, parseRemove, replyText } from '../reconcile.mjs';
@@ -107,9 +107,10 @@ test('hero files: small, no script, no foreignObject, no outside urls', () => {
     assert.match(s, /fine\. stopped\./);
     assert.match(s, />jk\.</);
     assert.match(s, /prefers-reduced-motion/);
-    // each avatar defined once
+    assert.match(s, /<g id="narrow" display="none"/);
+    // each avatar defined once, used by both scenes
     assert.equal((s.match(/<image /g) || []).length, 1);
-    assert.equal((s.match(/href="#av0"/g) || []).length, 1);
+    assert.equal((s.match(/href="#av0"/g) || []).length, 2);
     // login text never drawn
     assert.doesNotMatch(s, /octocat|aaghashm/);
   }
@@ -195,9 +196,9 @@ test('prune keeps 5 hurdles, 2 days of seen, 60 min of recent, 300 handled', () 
   assert.deepEqual(Object.keys(s.outcomes), ['320']);
 });
 
-test('readable: no text under 12px wide', () => {
+test('readable: no text under 12px wide, the narrow layout keeps every block, switches at 680px', () => {
   const s = heroSvg(state, cfg, 'dark', Date.parse('2026-10-15T20:00:00Z'));
-  const wide = s.slice(s.indexOf('<g id="wide">'));
+  const wide = s.slice(s.indexOf('<g id="wide">'), s.indexOf('<g id="narrow"'));
   // text inside the scaled action group is drawn at WIDE.s times its size
   const act = wide.indexOf(`scale(${WIDE.s})">`), actEnd = wide.indexOf('>today<');
   const sizes = [...wide.matchAll(/font-size="([\d.]+)"/g)].map((m) => (m.index > act && m.index < actEnd ? WIDE.s : 1) * +m[1]);
@@ -205,20 +206,35 @@ test('readable: no text under 12px wide', () => {
   // the runner and hurdles are 1.5x what they were, the title is big
   assert.equal(WIDE.s, 1.5);
   assert.match(wide, /class="sg" x="28" y="66" font-size="50"[^>]*>still running\./);
-  // the bubble fits in the box
+  // the bubble fits in the box in both layouts
   assert.ok(WIDE.rx + 18 + bubbleBox(19, 13).w <= W - 8);
   // the wide lane starts after the flag tower, so jumped hurdles never fade over it
   assert.ok(WIDE.rx - (RX - 500) * WIDE.s >= 462);
+  assert.match(s, /@media \(max-width:680px\)/);
+  assert.equal(NARROW.maxWidth, 680);
+  const narrow = s.slice(s.indexOf('<g id="narrow"'));
+  // 10 repo tiles + one lock per gap that has any (3 gaps) = 13 tiles, and the title
+  assert.equal((narrow.match(/<g class="tile/g) || []).length, 13);
+  assert.match(narrow, /still running\./);
+  // the narrow layout is for tablets, where the image is 440px or wider: text stays at 10px or more there
+  const nsizes = [...narrow.matchAll(/font-size="([\d.]+)"/g)].map((m) => +m[1]).filter((n) => n >= 20);
+  assert.ok(nsizes.length >= 4 && Math.min(...nsizes) * 440 / 840 >= 9.9, `smallest narrow text ${Math.min(...nsizes)}`);
+  // the counter's descenders clear the top of the tallest tower
+  const nTop = NARROW.gy - (26 + 3 * STACK) * NARROW.ts;
+  assert.ok(96 + NARROW.counter * 0.25 + 4 <= nTop, `narrow counter vs tower top ${nTop}`);
+  // and the jk. bubble clears his head at the top of a jump
+  const top = NARROW.gy - (12 + 29.5 + 34) * NARROW.s;
+  assert.ok(8 + bubbleBox(...NARROW.bubble).h <= top, `bubble bottom ${8 + bubbleBox(...NARROW.bubble).h} vs head ${top}`);
 });
 
 test('streak at 0: no orange line, no "since", the flag shows the best', () => {
   const z = { ...state, streak: { ...state.streak, current: 0 } };
   const s = heroSvg(z, cfg, 'dark', Date.parse('2026-10-15T20:00:00Z'));
-  const streakPath = new RegExp(`H${WIDE.rx}" stroke="${THEMES.dark.accent}"`, 'g');
+  const streakPath = new RegExp(`H(${WIDE.rx}|${NARROW.rx})" stroke="${THEMES.dark.accent}"`, 'g');
   assert.doesNotMatch(s, streakPath);
   assert.doesNotMatch(s, /since 28 jun/);
   assert.match(s, /110 days\. still running\./);
-  assert.equal((heroSvg(state, cfg, 'dark', Date.parse('2026-10-15T20:00:00Z')).match(streakPath) || []).length, 1);
+  assert.equal((heroSvg(state, cfg, 'dark', Date.parse('2026-10-15T20:00:00Z')).match(streakPath) || []).length, 2); // wide + phone
   // the flag says day 110, so the paragraph says something new
   assert.equal(streakLine({ current: 110, start: '2026-06-28', best: 110 }), 'a commit every day since 28 jun.');
   assert.equal(streakLine({ current: 0, best: 110 }), 'best run so far: 110 days of daily commits.');
@@ -261,11 +277,18 @@ test('hurdles fade out before the flag and the year labels, and never hang off t
   assert.ok(lay(WIDE, SHOW.wide[0] - half) >= Math.max(flagRight, yearRight) + 8, `wide left ${lay(WIDE, SHOW.wide[0] - half)}`);
   // and where it's fully shown, the whole hurdle is inside the picture
   assert.ok(lay(WIDE, SHOW.wide[2] + HURDLE_R) <= W - 8);
-  // the newest hurdle, the one he stops at, is fully shown
-  assert.ok(START_X[0] >= SHOW.wide[1] && START_X[0] <= SHOW.wide[2]);
+  // phone: same, against the end of the one-lock timeline and the right edge
+  const N = layoutTimeline(repos, cfg, 1);
+  const nEnd = NARROW.x0 - 28 * NARROW.ts + (N.slots.at(-1).x + 26) * NARROW.ts;
+  assert.ok(lay(NARROW, SHOW.narrow[0] - HURDLE_R) >= nEnd + 8, `phone left ${lay(NARROW, SHOW.narrow[0] - HURDLE_R)} vs ${nEnd}`);
+  assert.ok(lay(NARROW, SHOW.narrow[2] + HURDLE_R) <= W - 8, `phone right ${lay(NARROW, SHOW.narrow[2] + HURDLE_R)}`);
+  // the newest hurdle, the one he stops at, is fully shown in every layout
+  for (const k of ['wide', 'narrow']) assert.ok(START_X[0] >= SHOW[k][1] && START_X[0] <= SHOW[k][2]);
+  // phone labels sit on the ground, inside the picture
+  assert.ok(NARROW.gy + (12 + 2) * NARROW.s <= H);
   const s = heroSvg(state, cfg, 'light', Date.parse('2026-10-15T20:00:00Z'));
-  assert.equal((s.match(/>#37</g) || []).length, 1, 'newest #n');
-  assert.equal((s.match(/mask="url\(#mw\)"/g) || []).length, 1);
+  assert.equal((s.match(/>#37</g) || []).length, 2, 'newest #n in both layouts');
+  assert.equal((s.match(/mask="url\(#m[wn]\)"/g) || []).length, 2);
 });
 
 test('the still frame shows only what is ahead, in the order he meets them', () => {
@@ -290,8 +313,8 @@ test('bubble opens on one line, then grows for jk.; the still frame shows both',
   const s = heroSvg(state, cfg, 'dark', Date.parse('2026-10-15T20:00:00Z'));
   const one = s.match(/<g class="b1" opacity="0">([\s\S]*?)<\/g>/g);
   const two = s.match(/<g class="b2">([\s\S]*?)<\/g>/g);
-  assert.equal(one.length, 1);
-  assert.equal(two.length, 1);
+  assert.equal(one.length, 2);
+  assert.equal(two.length, 2);
   for (const g of one) { assert.match(g, /fine\. stopped\./); assert.doesNotMatch(g, /jk\./); }
   for (const g of two) { assert.match(g, /fine\. stopped\./); assert.match(g, />jk\.</); }
   const { h, h1 } = bubbleBox(19, 13);
@@ -310,7 +333,7 @@ test('same world as the site: slate ground and blue hills by day, navy with star
   assert.doesNotMatch(light, /fill="#fffaeb"/);
   assert.doesNotMatch(light + dark, /#f3ece0|#0b0b0d/); // the old sand band and black slab
   // the faint year sits between the 2024 tower and the flag, above the single blocks: never behind a block,
-  // the runner or the bubble.
+  // the runner or the bubble. the narrow layouts leave it out.
   const L = layoutTimeline(repos, cfg);
   const pole = L.flagSlot.x + 13;
   const tall = L.slots.filter((s) => s.kind === 'tower' && s.tower.repos.length > 1 && s.x < pole);

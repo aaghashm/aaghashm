@@ -9,7 +9,7 @@ import { ICONS } from './icons.mjs';
 export const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 
 // ---------- scene constants ----------
-// the box
+// the box. an <img> keeps one aspect ratio, so the phone layout lives in the same box.
 export const W = 840, H = 280;
 // the motion is worked out in "model" coordinates (below), then each layout scales it up.
 export const LOOP = 8;              // seconds per loop
@@ -27,12 +27,16 @@ export const SLOT0 = 28, SLOT = 34, TILE = 26, STACK = 28;
 export const HURDLE_R = 12, HURDLE_CY = GY - 4 - HURDLE_R;
 // wide: runner, hurdles and road at s x model size, runner at rx, ground at gy. tiles stay 1x.
 export const WIDE = { s: 1.5, rx: 644, gy: 224 };
+// narrow (phones and tablets, where the readme column is under 680px): title + bubble on top, track below.
+// timeline at ts (one lock per gap), the action at s.
+export const NARROW = { s: 1.75, ts: 1.2, rx: 664, gy: 246, x0: 22, maxWidth: 680, counter: 30, bubble: [28, 16] };
 // where the hurdles show, in model x: [gone, full, full, gone]. outside it they fade to nothing,
 // so a hurdle never sits on the flag, the year labels or the edge of the picture.
 // the big faint year: [center x, height above the ground, size]. it sits over the hills between
 // the 2024 blocks and the flag, clear of every block, like the site's year behind open scenery.
+// the narrow layouts have no room for it.
 export const MARK = { wide: [316, 32, 90] };
-export const SHOW = { wide: [522, 544, 724, 750] };
+export const SHOW = { wide: [522, 544, 724, 750], narrow: [506, 530, 690, 706] };
 const EASE_UP = [0.2, 0.7, 0.4, 1];   // ease-out going up
 const EASE_DOWN = [0.6, 0, 0.8, 0.3]; // ease-in coming down
 
@@ -205,6 +209,7 @@ function fontCss() {
   return FONT_CSS;
 }
 
+// switch: the hero hides #wide under NARROW.maxWidth
 function css(wobble) {
   const kf = [];
   START_X.forEach((x0, i) => {
@@ -243,11 +248,12 @@ ${START_X.map((_, i) => `.h${i}{animation-name:h${i}}`).join('')}
 .tk{animation:tk 60s steps(60) infinite}@keyframes tk{to{transform:rotate(360deg)}}
 .lv{animation:lv 2s ease-in-out infinite}@keyframes lv{50%{opacity:.25}}
 ${wobble ? '.wob{animation:wob 3s ease-in-out infinite;transform-box:fill-box;transform-origin:50% 100%}@keyframes wob{0%,100%{transform:rotate(0)}10%{transform:rotate(-6deg)}20%{transform:rotate(6deg)}30%{transform:rotate(0)}}' : ''}
+@media (max-width:${NARROW.maxWidth}px){#wide{display:none}#narrow{display:inline}}
 @media (prefers-reduced-motion:reduce){*{animation:none!important}}
 `.trim().replace(/\n+/g, '\n');
 }
 
-// each icon path is written once in <defs> and reused
+// each icon path is written once in <defs> and reused, so the two layouts don't double the file
 let usedIcons = new Set();
 function icon(name, x, y, size, fill) {
   if (!ICONS[name]) return '';
@@ -341,7 +347,7 @@ function hurdle(i, h, T, { ls, ly }) {
   return `<g transform="translate(${x0} 0)"><g class="hd h${i}" opacity="${r2(opacityAt(x0))}">${shape}${label}</g></g>`;
 }
 
-// hurdles, runner and the road ahead, in model coordinates. the layout scales it.
+// hurdles, runner and the road ahead, in model coordinates. both layouts scale it.
 function action(state, T, { ls, ly, mask }) {
   const out = [];
   out.push(`<path class="ds" d="M${RX + 10} ${GY}H${LANE_R}" stroke="${T.dash}" stroke-width="2" stroke-dasharray="10 14"/>`);
@@ -464,6 +470,29 @@ function wideScene(state, T, cfg, dark) {
   return out.join('');
 }
 
+// phones and tablets: title and bubble on top, every block below with one lock per gap
+function narrowScene(state, T, cfg, dark) {
+  const N = NARROW, out = [];
+  const layout = layoutTimeline(state.repos || [], cfg, 1);
+  const { slots, flagSlot } = layout;
+  const streak = state.streak || { current: 0, best: 0 };
+  out.push(backdrop(T, dark, { gy: N.gy, k: 0.72, moon: [568, 126, 0.7] }));
+  const ox = r2(N.x0 - SLOT0 * N.ts), oy = r2(N.gy - GY * N.ts);
+  const nx = (x) => r2(ox + x * N.ts);
+  const end = slots.length ? nx(slots.at(-1).x + TILE) : 420;
+  const fx = flagSlot ? nx(flagSlot.x + TILE) : end;
+  if (streak.current > 0) out.push(`<path d="M${fx} ${N.gy}H${N.rx}" stroke="${T.accent}" stroke-width="5" stroke-linecap="round"/>`);
+  out.push(`<g transform="translate(${ox} ${oy}) scale(${N.ts})">${tiles(layout, T, cfg)}</g>`);
+  if (flagSlot) out.push(flag(streak, T, nx(flagSlot.x + TILE / 2), r2(oy + (GY - TILE - (flagSlot.tower.repos.length - 1) * STACK) * N.ts - 4), 136, 26, true));
+  const ax = r2(N.rx - RX * N.s), ay = r2(N.gy - GY * N.s);
+  out.push(`<g transform="translate(${ax} ${ay}) scale(${N.s})">${action(state, T, { ls: 13, ly: 12, mask: 'mn' })}</g>`);
+  const [size, pad] = N.bubble, bw = bubbleBox(size, pad).w, bx = r2(W - 18 - bw);
+  out.push(speech(T, { x: bx, y: 8, size, pad, tail: [r2(bx + 30), r2(bx + 54), N.rx + 14, N.gy - 88] }));
+  out.push(`<text class="sg" x="${N.x0 - 2}" y="62" font-size="68" fill="${T.accentInk}" letter-spacing="-1.5">still running.</text>`);
+  out.push(`<text x="${N.x0}" y="96" font-size="${N.counter}" fill="${T.muted}">${esc(counterLine(state.tries || 0))}</text>`);
+  return out.join('');
+}
+
 // a mask in model x: hurdles fade out at both ends of the part of the lane that's on show
 function showMask(id, [a0, a1, b0, b1], w = W, h = H) {
   const o = (x) => r2((x - a0) / (b1 - a0));
@@ -484,15 +513,16 @@ export function heroSvg(state, cfg, themeName, now = Date.now()) {
   const wobble = wobbling(state, now);
   usedIcons = new Set();
   const dark = themeName === 'dark';
-  const wide = wideScene(state, T, cfg, dark);
+  const wide = wideScene(state, T, cfg, dark), narrow = narrowScene(state, T, cfg, dark);
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">`
     + `<style>${css(wobble)}</style>`
     + `<defs>${AVC}`
     + `<clipPath id="card"><rect width="${W}" height="${H}" rx="16"/></clipPath>`
     + skyDef('sky', T, 240)
-    + showMask('mw', SHOW.wide)
+    + showMask('mw', SHOW.wide) + showMask('mn', SHOW.narrow)
     + `${avatarDefs(state)}${iconDefs()}</defs>`
     + `<g id="wide"><g clip-path="url(#card)">${wide}</g></g>`
+    + `<g id="narrow" display="none"><g clip-path="url(#card)">${narrow}</g></g>`
     + `</svg>\n`;
 }
 
