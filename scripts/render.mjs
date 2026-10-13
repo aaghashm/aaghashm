@@ -1,4 +1,4 @@
-// builds the hero svgs (dark + light) and README.md from data/state.json.
+// builds the hero svgs (dark + light), the phone hero and README.md from data/state.json.
 // pure functions are exported for the tests. run directly: node scripts/render.mjs
 import { createHash } from 'node:crypto';
 import { readFileSync, writeFileSync, readdirSync, unlinkSync, existsSync, realpathSync } from 'node:fs';
@@ -27,16 +27,19 @@ export const SLOT0 = 28, SLOT = 34, TILE = 26, STACK = 28;
 export const HURDLE_R = 12, HURDLE_CY = GY - 4 - HURDLE_R;
 // wide: runner, hurdles and road at s x model size, runner at rx, ground at gy. tiles stay 1x.
 export const WIDE = { s: 1.5, rx: 644, gy: 224 };
-// narrow (phones and tablets, where the readme column is under 680px): title + bubble on top, track below.
-// timeline at ts (one lock per gap), the action at s.
+// narrow (tablets, where the readme column is 440-680px): title + bubble on top, track below.
+// timeline at ts (one lock per gap), the action at s. phones get their own 2:1 picture, PHONE below.
 export const NARROW = { s: 1.75, ts: 1.2, rx: 664, gy: 246, x0: 22, maxWidth: 680, counter: 30, bubble: [28, 16] };
+// phone (viewport up to maxWidth): its own 600x300 file. title and bubble on one row, then the track,
+// the counter on the ground. the flag points left, over the timeline, so the runner sits close to the blocks.
+export const PHONE = { w: 600, h: 300, ts: 1.15, s: 1.6, rx: 415, gy: 244, x0: 16, maxWidth: 600, title: 58, counter: 22, bubble: [24, 14], flag: 24 };
 // where the hurdles show, in model x: [gone, full, full, gone]. outside it they fade to nothing,
 // so a hurdle never sits on the flag, the year labels or the edge of the picture.
 // the big faint year: [center x, height above the ground, size]. it sits over the hills between
 // the 2024 blocks and the flag, clear of every block, like the site's year behind open scenery.
 // the narrow layouts have no room for it.
 export const MARK = { wide: [316, 32, 90] };
-export const SHOW = { wide: [522, 544, 724, 750], narrow: [506, 530, 690, 706] };
+export const SHOW = { wide: [522, 544, 724, 750], narrow: [506, 530, 690, 706], phone: [598, 610, 726, 740] };
 const EASE_UP = [0.2, 0.7, 0.4, 1];   // ease-out going up
 const EASE_DOWN = [0.6, 0, 0.8, 0.3]; // ease-in coming down
 
@@ -209,8 +212,8 @@ function fontCss() {
   return FONT_CSS;
 }
 
-// switch: the hero hides #wide under NARROW.maxWidth
-function css(wobble) {
+// switch: the hero hides #wide under NARROW.maxWidth; the phone file shows #pd (dark) when the os is dark
+function css(wobble, phone = false) {
   const kf = [];
   START_X.forEach((x0, i) => {
     const pts = hurdlePoints(x0);
@@ -248,7 +251,7 @@ ${START_X.map((_, i) => `.h${i}{animation-name:h${i}}`).join('')}
 .tk{animation:tk 60s steps(60) infinite}@keyframes tk{to{transform:rotate(360deg)}}
 .lv{animation:lv 2s ease-in-out infinite}@keyframes lv{50%{opacity:.25}}
 ${wobble ? '.wob{animation:wob 3s ease-in-out infinite;transform-box:fill-box;transform-origin:50% 100%}@keyframes wob{0%,100%{transform:rotate(0)}10%{transform:rotate(-6deg)}20%{transform:rotate(6deg)}30%{transform:rotate(0)}}' : ''}
-@media (max-width:${NARROW.maxWidth}px){#wide{display:none}#narrow{display:inline}}
+${phone ? '@media (prefers-color-scheme:dark){#pl{display:none}#pd{display:inline}}' : `@media (max-width:${NARROW.maxWidth}px){#wide{display:none}#narrow{display:inline}}`}
 @media (prefers-reduced-motion:reduce){*{animation:none!important}}
 `.trim().replace(/\n+/g, '\n');
 }
@@ -470,7 +473,7 @@ function wideScene(state, T, cfg, dark) {
   return out.join('');
 }
 
-// phones and tablets: title and bubble on top, every block below with one lock per gap
+// phone (the image is ~320x107 css px there): title and bubble on top, every block below with one lock per gap
 function narrowScene(state, T, cfg, dark) {
   const N = NARROW, out = [];
   const layout = layoutTimeline(state.repos || [], cfg, 1);
@@ -490,6 +493,39 @@ function narrowScene(state, T, cfg, dark) {
   out.push(speech(T, { x: bx, y: 8, size, pad, tail: [r2(bx + 30), r2(bx + 54), N.rx + 14, N.gy - 88] }));
   out.push(`<text class="sg" x="${N.x0 - 2}" y="62" font-size="68" fill="${T.accentInk}" letter-spacing="-1.5">still running.</text>`);
   out.push(`<text x="${N.x0}" y="96" font-size="${N.counter}" fill="${T.muted}">${esc(counterLine(state.tries || 0))}</text>`);
+  return out.join('');
+}
+
+// phone, its own 2:1 picture: title and bubble on top, then every block (one lock per gap), the flag
+// pointing back over them, the runner with the next two hurdles big enough to see faces, and the counter on the ground.
+export function phoneLayout(cfg, repos) {
+  const P = PHONE, layout = layoutTimeline(repos, cfg, 1);
+  const ox = r2(P.x0 - SLOT0 * P.ts), oy = r2(P.gy - GY * P.ts);
+  const nx = (x) => r2(ox + x * P.ts);
+  const tallest = Math.max(1, ...layout.towers.map((t) => t.repos.length));
+  return { layout, ox, oy, nx, end: layout.slots.length ? nx(layout.slots.at(-1).x + TILE) : 360, top: r2(P.gy - (TILE + (tallest - 1) * STACK) * P.ts) };
+}
+function phoneScene(state, T, cfg, dark, skyId) {
+  const P = PHONE, out = [];
+  const { layout, ox, oy, nx, end } = phoneLayout(cfg, state.repos || []);
+  const { flagSlot } = layout;
+  const streak = state.streak || { current: 0, best: 0 };
+  out.push(backdrop(T, dark, { gy: P.gy, k: 0.6, w: P.w, h: P.h, sky: skyId, moon: [528, 132, 0.6] }));
+  const fx = flagSlot ? nx(flagSlot.x + TILE) : end;
+  if (streak.current > 0) out.push(`<path d="M${fx} ${P.gy}H${P.rx}" stroke="${T.accent}" stroke-width="4.5" stroke-linecap="round"/>`);
+  out.push(`<g transform="translate(${ox} ${oy}) scale(${P.ts})">${tiles(layout, T, cfg)}</g>`);
+  if (flagSlot) {
+    const tileTop = r2(oy + (GY - TILE - (flagSlot.tower.repos.length - 1) * STACK) * P.ts);
+    out.push(flag(streak, T, nx(flagSlot.x + TILE / 2), tileTop - 4, r2(tileTop - 4 - Math.round(P.flag * 2.3) - 10), P.flag, true, true));
+  }
+  const ax = r2(P.rx - RX * P.s), ay = r2(P.gy - GY * P.s);
+  out.push(`<g transform="translate(${ax} ${ay}) scale(${P.s})">${action(state, T, { ls: 13.75, ly: 13, mask: 'mp' })}</g>`);
+  const [size, pad] = P.bubble, bw = bubbleBox(size, pad).w, bx = r2(P.w - 14 - bw);
+  const head = r2(P.gy - (12 + 29.5) * P.s);
+  out.push(speech(T, { x: bx, y: 10, size, pad, tail: [r2(bx + 18), r2(bx + 40), P.rx + 12, r2(head - 14)] }));
+  out.push(`<text class="sg" x="${P.x0 - 2}" y="56" font-size="${P.title}" fill="${T.accentInk}" letter-spacing="-1.5">still running.</text>`);
+  // the counter sits on the ground under the blocks, so the sky between the title and the blocks stays clear
+  out.push(`<text x="${P.x0}" y="${P.h - 13}" font-size="${P.counter}" fill="${T.gInk}">${esc(counterLine(state.tries || 0))}</text>`);
   return out.join('');
 }
 
@@ -526,6 +562,23 @@ export function heroSvg(state, cfg, themeName, now = Date.now()) {
     + `</svg>\n`;
 }
 
+// the phone file: one picture for both themes, picked by the phone's own light or dark setting.
+// (github's theme switch only rewrites prefers-color-scheme sources, so the phone source can't carry one.)
+export function phoneSvg(state, cfg, now = Date.now()) {
+  const P = PHONE, wobble = wobbling(state, now);
+  usedIcons = new Set();
+  const light = phoneScene(state, THEMES.light, cfg, false, 'skyl'), dark = phoneScene(state, THEMES.dark, cfg, true, 'skyd');
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${P.w}" height="${P.h}" viewBox="0 0 ${P.w} ${P.h}">`
+    + `<style>${css(wobble, true)}</style>`
+    + `<defs>${AVC}<clipPath id="pc"><rect width="${P.w}" height="${P.h}" rx="14"/></clipPath>`
+    + skyDef('skyl', THEMES.light, P.gy) + skyDef('skyd', THEMES.dark, P.gy)
+    + showMask('mp', SHOW.phone)
+    + `${avatarDefs(state)}${iconDefs()}</defs>`
+    + `<g id="pl"><g clip-path="url(#pc)">${light}</g></g>`
+    + `<g id="pd" display="none"><g clip-path="url(#pc)">${dark}</g></g>`
+    + `</svg>\n`;
+}
+
 // ---------- write everything ----------
 const hash8 = (s) => createHash('sha256').update(s).digest('hex').slice(0, 8);
 
@@ -541,11 +594,14 @@ export function renderAll(state, root = ROOT, now = Date.now()) {
     if (!existsSync(p) || readFileSync(p, 'utf8') !== svg) writeFileSync(p, svg);
   }
   // old hero files go, new hashes mean camo never serves a stale one
+  const phone = phoneSvg(state, cfg, now);
+  files.phone = `phone-${hash8(phone)}.svg`;
+  writeIfChanged(join(assets, files.phone), phone);
   const keep = new Set(Object.values(files));
-  for (const f of readdirSync(assets)) if (/^hero-(dark|light)-[0-9a-f]{8}\.svg$/.test(f) && !keep.has(f)) unlinkSync(join(assets, f));
-  state.assets = { heroDark: files.dark, heroLight: files.light };
+  for (const f of readdirSync(assets)) if (/^(hero-(dark|light)|phone)-[0-9a-f]{8}\.svg$/.test(f) && !keep.has(f)) unlinkSync(join(assets, f));
+  state.assets = { heroDark: files.dark, heroLight: files.light, phone: files.phone };
   const tmpl = readFileSync(join(root, 'templates/README.md.tmpl'), 'utf8');
-  const md = tmpl.replaceAll('{{heroDark}}', files.dark).replaceAll('{{heroLight}}', files.light)
+  const md = tmpl.replaceAll('{{heroDark}}', files.dark).replaceAll('{{heroLight}}', files.light).replaceAll('{{phone}}', files.phone)
     .replaceAll('{{streakLine}}', streakLine(state.streak));
   writeIfChanged(join(root, 'README.md'), md);
   return state.assets;

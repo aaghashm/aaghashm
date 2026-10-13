@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import {
   ROOT, layoutTimeline, crossTime, START_X, heroSvg, jumpAt, hurdlePoints, counterLine, sinceStart, iconInk,
   RX, GY, HURDLE_CY, HURDLE_R, LOOP, F, NARROW, WIDE, THEMES, streakLine, W, H, sansW, bubbleBox, SHOW, MARK, textW,
-  opacityAt, BEHIND, STACK,
+  PHONE, phoneSvg, phoneLayout, opacityAt, BEHIND, STACK,
 } from '../render.mjs';
 import { streakFrom, pickRepos, prune, gameKind, eligible, sniff, stopLine, knockLine, LOGIN_RE, dateIn, parseRemove, replyText } from '../reconcile.mjs';
 
@@ -114,6 +114,20 @@ test('hero files: small, no script, no foreignObject, no outside urls', () => {
     // login text never drawn
     assert.doesNotMatch(s, /octocat|aaghashm/);
   }
+  // the phone file: one picture, both themes, picked by the phone's own setting
+  const fullPhone = phoneSvg({ ...state, hurdles: Array.from({ length: 5 }, (_, i) => ({ id: i, n: 37 - i, avatar: 'data:image/png;base64,' + 'A'.repeat(8192) })) }, cfg);
+  assert.ok(Buffer.byteLength(fullPhone) < 100 * 1024, 'phone with 5 faces is too big');
+  const p = phoneSvg(state, cfg, Date.parse('2026-10-15T20:00:00Z'));
+  assert.ok(Buffer.byteLength(p) < 56 * 1024, `phone is ${Buffer.byteLength(p)} bytes`);
+  assert.match(p, /width="600" height="300" viewBox="0 0 600 300"/);
+  assert.match(p, /@media \(prefers-color-scheme:dark\)\{#pl\{display:none\}#pd\{display:inline\}\}/);
+  assert.match(p, /<g id="pd" display="none">/);
+  assert.match(p, /stop-color="#bfdcff"/);
+  assert.match(p, /stop-color="#0d1b2e"/);
+  assert.doesNotMatch(p, /<script|foreignObject|octocat|aaghashm/i);
+  assert.deepEqual([...new Set(p.match(/https?:\/\/[^\s"')]+/g))], ['http://www.w3.org/2000/svg']);
+  assert.equal((p.match(/<image /g) || []).length, 1);
+  assert.equal((p.match(/href="#av0"/g) || []).length, 2); // light + dark
 });
 
 test('wobble only within 24h of a knock', () => {
@@ -245,7 +259,8 @@ test('README: one stop joke, honest gaps, links persistent-stopwatch, no bio rep
   assert.doesNotMatch(md, /nobody's stopped/);
   assert.doesNotMatch(md, /still running\. most of it's private/);
   assert.doesNotMatch(md, /can't see/);
-  assert.match(md, /<picture>\s*<source media="\(prefers-color-scheme: dark\)"/);
+  // phones get the 2:1 picture first; it carries no color scheme, so github's theme switch leaves it alone
+  assert.match(md, /<picture>\s*<source media="\(max-width: 600px\)" srcset="[^"]+\/assets\/phone-[0-9a-f]{8}\.svg">\s*<source media="\(prefers-color-scheme: dark\)"/);
   assert.match(md, /\[persistent-stopwatch\]\(https:\/\/aaghashm\.github\.io\/persistent-stopwatch\/\)/);
   assert.doesNotMatch(md, /—|–/);
   assert.match(md, /^<!-- built from templates\/README\.md\.tmpl\. edit that, not this\. -->/);
@@ -282,8 +297,12 @@ test('hurdles fade out before the flag and the year labels, and never hang off t
   const nEnd = NARROW.x0 - 28 * NARROW.ts + (N.slots.at(-1).x + 26) * NARROW.ts;
   assert.ok(lay(NARROW, SHOW.narrow[0] - HURDLE_R) >= nEnd + 8, `phone left ${lay(NARROW, SHOW.narrow[0] - HURDLE_R)} vs ${nEnd}`);
   assert.ok(lay(NARROW, SHOW.narrow[2] + HURDLE_R) <= W - 8, `phone right ${lay(NARROW, SHOW.narrow[2] + HURDLE_R)}`);
+  // phone: where a cleared hurdle is gone, it's clear of the stopwatch block; the second one ahead is inside the picture
+  const P = phoneLayout(cfg, repos);
+  assert.ok(lay(PHONE, Math.max(SHOW.phone[0], BEHIND[0]) - HURDLE_R) >= P.end, `phone left ${lay(PHONE, SHOW.phone[0] - HURDLE_R)} vs ${P.end}`);
+  assert.ok(lay(PHONE, START_X[1] + HURDLE_R) <= PHONE.w - 4, `phone right ${lay(PHONE, START_X[1] + HURDLE_R)}`);
   // the newest hurdle, the one he stops at, is fully shown in every layout
-  for (const k of ['wide', 'narrow']) assert.ok(START_X[0] >= SHOW[k][1] && START_X[0] <= SHOW[k][2]);
+  for (const k of ['wide', 'narrow', 'phone']) assert.ok(START_X[0] >= SHOW[k][1] && START_X[0] <= SHOW[k][2]);
   // phone labels sit on the ground, inside the picture
   assert.ok(NARROW.gy + (12 + 2) * NARROW.s <= H);
   const s = heroSvg(state, cfg, 'light', Date.parse('2026-10-15T20:00:00Z'));
@@ -343,4 +362,35 @@ test('same world as the site: slate ground and blue hills by day, navy with star
   assert.ok(WIDE.gy - up <= WIDE.gy - 26 - 4, 'year sits above the single blocks');
   assert.equal((light.match(new RegExp(`opacity="${THEMES.light.markOp}">2026<`, 'g')) || []).length, 1, 'year mark only in the wide layout');
   assert.ok(THEMES.light.markOp <= 0.03 && THEMES.dark.markOp <= 0.03);
+});
+
+test('phone: 2:1, readable on a 320px screen (a 288px image), big blocks and faces', () => {
+  const k = 288 / PHONE.w;
+  assert.equal(PHONE.w / PHONE.h, 2);
+  const p = phoneSvg(state, cfg, Date.parse('2026-10-15T20:00:00Z'));
+  const light = p.slice(p.indexOf('<g id="pl">'), p.indexOf('<g id="pd"'));
+  // every repo block and one lock per gap
+  assert.equal((light.match(/<g class="tile/g) || []).length, 13);
+  // blocks at 14px, faces at 18px, text at 10px or more
+  assert.ok(26 * PHONE.ts * k >= 14, `tile ${26 * PHONE.ts * k}`);
+  assert.ok(2 * HURDLE_R * PHONE.s * k >= 18, `face ${2 * HURDLE_R * PHONE.s * k}`);
+  const act = light.indexOf(`scale(${PHONE.s})">`), actEnd = light.indexOf('class="b1"');
+  const sizes = [...light.matchAll(/font-size="([\d.]+)"/g)].map((m) => (m.index > act && m.index < actEnd ? PHONE.s : 1) * +m[1]);
+  assert.ok(Math.min(...sizes) * k >= 10, `smallest phone text ${Math.min(...sizes) * k}`);
+  assert.match(light, new RegExp(`font-size="${PHONE.title}"[^>]*>still running\\.`));
+  // title and bubble share the top row without touching
+  const [bs, bp] = PHONE.bubble, bx = PHONE.w - 14 - bubbleBox(bs, bp).w;
+  assert.ok(PHONE.x0 + sansW('still running.', PHONE.title) - 13 * 1.5 + 12 <= bx, 'title runs into the bubble');
+  // and the bubble clears his head at the top of a jump
+  assert.ok(10 + bubbleBox(bs, bp).h <= PHONE.gy - (12 + 29.5 + 34) * PHONE.s);
+  // the space under the title is open down to the tallest tower
+  assert.ok(56 + PHONE.title * 0.25 + 16 <= phoneLayout(cfg, repos).top, 'title vs the tallest tower');
+  // the counter sits on the ground, under the blocks, and ends before the "you?" label
+  const m = light.match(/y="([\d.]+)" font-size="([\d.]+)"[^>]*>tried 37 times/);
+  assert.ok(+m[1] - +m[2] * 0.75 >= PHONE.gy + 13 * PHONE.s, 'counter below the hurdle labels');
+  const youLeft = PHONE.rx + (START_X[0] - RX) * PHONE.s - sansW('you?', 13.75 * 1.05 * PHONE.s) / 2;
+  assert.ok(PHONE.x0 + textW(counterLine(0), PHONE.counter) + 8 <= youLeft, 'counter runs into you?');
+  // the flag points back over the blocks, so the runner can sit close to them
+  const P = phoneLayout(cfg, repos);
+  assert.ok(PHONE.rx - 7 * PHONE.s - 20 >= P.end);
 });

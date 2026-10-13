@@ -70,7 +70,8 @@
  "lastDaily": "2026-10-15",
  "assets": {
   "heroDark": "hero-dark-0094ef23.svg",
-  "heroLight": "hero-light-9d1acb7b.svg"
+  "heroLight": "hero-light-9d1acb7b.svg",
+  "phone": "phone-b7792b1e.svg"
  },
  "modIssue": null
 }

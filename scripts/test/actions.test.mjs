@@ -126,6 +126,10 @@ test('play + daily workflows, end to end', async (t) => {
     assert.deepEqual(heroes, [st.assets.heroDark, st.assets.heroLight].sort());
     const readme = readFileSync(join(work, 'README.md'), 'utf8');
     assert.ok(readme.includes(st.assets.heroDark) && readme.includes(st.assets.heroLight));
+    // and one phone picture, the current one, with the same counter
+    assert.deepEqual(readdirSync(join(work, 'assets')).filter((f) => f.startsWith('phone-')), [st.assets.phone]);
+    assert.ok(readme.includes(st.assets.phone));
+    assert.match(readFileSync(join(work, 'assets', st.assets.phone), 'utf8'), /tried 6 times\. stopped 0\./);
     assert.match(readFileSync(join(work, 'assets', st.assets.heroDark), 'utf8'), /tried 6 times\. stopped 0\./);
     assert.match(readFileSync(join(work, 'assets', st.assets.heroDark), 'utf8'), /@keyframes wob/);
     assert.ok(db.labels.has('played'));
@@ -327,5 +331,6 @@ test('play + daily workflows, end to end', async (t) => {
     assert.doesNotMatch(svg, /@keyframes wob/);
     assert.match(svg, /110 days\. still running\./);
     assert.equal(readdirSync(join(work, 'assets')).filter((f) => f.startsWith('hero-')).length, 2);
+    assert.equal(readdirSync(join(work, 'assets')).filter((f) => f.startsWith('phone-')).length, 1);
   });
 });
