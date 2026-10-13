@@ -4,9 +4,9 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
-  ROOT, layoutTimeline, crossTime, START_X, heroSvg, jumpAt, hurdlePoints, counterLine, sinceStart, iconInk,
+  ROOT, layoutTimeline, crossTime, START_X, heroSvg, buttonSvg, jumpAt, hurdlePoints, counterLine, sinceStart, iconInk,
   RX, GY, HURDLE_CY, HURDLE_R, LOOP, F, NARROW, WIDE, THEMES, streakLine, W, H, sansW, bubbleBox, SHOW, MARK, textW,
-  PHONE, phoneSvg, phoneLayout, opacityAt, BEHIND, STACK,
+  PHONE, phoneSvg, phoneLayout, opacityAt, BEHIND, buttonW, BUTTON, STACK,
 } from '../render.mjs';
 import { streakFrom, pickRepos, prune, gameKind, eligible, sniff, stopLine, knockLine, LOGIN_RE, dateIn, parseRemove, replyText } from '../reconcile.mjs';
 
@@ -114,6 +114,7 @@ test('hero files: small, no script, no foreignObject, no outside urls', () => {
     // login text never drawn
     assert.doesNotMatch(s, /octocat|aaghashm/);
   }
+  for (const k of ['play', 'stop']) for (const th of ['dark', 'light']) assert.doesNotMatch(buttonSvg(k, th), /<script|https:/);
   // the phone file: one picture, both themes, picked by the phone's own setting
   const fullPhone = phoneSvg({ ...state, hurdles: Array.from({ length: 5 }, (_, i) => ({ id: i, n: 37 - i, avatar: 'data:image/png;base64,' + 'A'.repeat(8192) })) }, cfg);
   assert.ok(Buffer.byteLength(fullPhone) < 100 * 1024, 'phone with 5 faces is too big');
@@ -261,6 +262,8 @@ test('README: one stop joke, honest gaps, links persistent-stopwatch, no bio rep
   assert.doesNotMatch(md, /can't see/);
   // phones get the 2:1 picture first; it carries no color scheme, so github's theme switch leaves it alone
   assert.match(md, /<picture>\s*<source media="\(max-width: 600px\)" srcset="[^"]+\/assets\/phone-[0-9a-f]{8}\.svg">\s*<source media="\(prefers-color-scheme: dark\)"/);
+  assert.match(md, new RegExp(`<img width="${buttonW('play')}" alt="play the real one"`));
+  assert.match(md, new RegExp(`<img width="${buttonW('stop')}" alt="stop him"`));
   assert.match(md, /\[persistent-stopwatch\]\(https:\/\/aaghashm\.github\.io\/persistent-stopwatch\/\)/);
   assert.doesNotMatch(md, /—|–/);
   assert.match(md, /^<!-- built from templates\/README\.md\.tmpl\. edit that, not this\. -->/);
@@ -393,4 +396,25 @@ test('phone: 2:1, readable on a 320px screen (a 288px image), big blocks and fac
   // the flag points back over the blocks, so the runner can sit close to them
   const P = phoneLayout(cfg, repos);
   assert.ok(PHONE.rx - 7 * PHONE.s - 20 >= P.end);
+});
+
+test('buttons: the site pills, jetbrains mono built in, room on both ends', () => {
+  for (const th of ['light', 'dark']) for (const kind of ['play', 'stop']) {
+    const b = buttonSvg(kind, th), w = buttonW(kind);
+    assert.match(b, /@font-face\{font-family:sr-btn;font-weight:500;src:url\(data:font\/woff2;base64,/);
+    assert.match(b, /text\{font-family:sr-btn,/);
+    assert.match(b, new RegExp(`width="${w}" height="48"`));
+    assert.match(b, new RegExp(`rx="${(BUTTON.h - 1) / 2}"`)); // a full pill
+    assert.ok(Buffer.byteLength(b) < 6 * 1024);
+    // the text ends at least 18px before the edge
+    assert.ok(w - (BUTTON[kind].x + textW(BUTTON[kind].text, BUTTON.size)) >= 18, `${kind} right room`);
+  }
+  // stop him carries the site's stop icon: ring, crown, square
+  assert.match(buttonSvg('stop', 'light'), /<circle cx="22" cy="22" r="18" fill="none"[^>]*\/><rect x="19.5" y="9.5" width="5" height="3"[^>]*\/><rect x="16" y="17" width="12" height="12"/);
+  // soft white by day, near black by night
+  assert.match(buttonSvg('play', 'light'), /fill="#ffffff" stroke="#e3ded5"/);
+  assert.match(buttonSvg('play', 'dark'), /fill="#141417"/);
+  // the font subset covers every letter on the buttons
+  const font = readFileSync(join(ROOT, 'data/fonts/jetbrains-mono-500-buttons.woff2'));
+  assert.ok(font.length < 3000);
 });

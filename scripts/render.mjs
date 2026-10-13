@@ -1,4 +1,4 @@
-// builds the hero svgs (dark + light), the phone hero and README.md from data/state.json.
+// builds the hero svgs (dark + light), the phone hero, the two buttons and README.md from data/state.json.
 // pure functions are exported for the tests. run directly: node scripts/render.mjs
 import { createHash } from 'node:crypto';
 import { readFileSync, writeFileSync, readdirSync, unlinkSync, existsSync, realpathSync } from 'node:fs';
@@ -579,6 +579,41 @@ export function phoneSvg(state, cfg, now = Date.now()) {
     + `</svg>\n`;
 }
 
+// ---------- buttons (static) ----------
+function miniRunner(T, x, y) {
+  // same figure as the hero, mid stride, scaled down
+  return `<g transform="translate(${x} ${y}) scale(.62)" fill="none" stroke-linecap="round" stroke-linejoin="round">`
+    + `<path d="M-5 -13.5c-5-1-8 3-13 1.5s-7-3.5-11-1" stroke="${T.scarf}" stroke-width="4.5"/>`
+    + `<g transform="rotate(25)"><path d="M0 0 1.2 6.5 -.6 12" stroke="${T.rBack}" stroke-width="4.2"/></g>`
+    + `<g transform="rotate(6)"><rect x="-6.5" y="-16" width="13" height="18" rx="6.5" fill="${T.rInk}"/><circle cx="1.5" cy="-22" r="7.5" fill="${T.rInk}"/>`
+    + `<ellipse cx="5" cy="-23" rx="1.4" ry="1.9" fill="${T.rEye}"/><rect x="-6" y="-15.5" width="13" height="4.5" rx="2.2" fill="${T.scarf}"/></g>`
+    + `<g transform="rotate(-28)"><path d="M0 0 1.2 6.5 -.6 12" stroke="${T.rInk}" stroke-width="4.2"/></g>`
+    + `<g transform="translate(1 -11) rotate(30)"><path d="M0 0 0 5.5 3.2 9.4" stroke="${T.rInk}" stroke-width="3.4"/></g></g>`;
+}
+// the site's pills: soft white by day, near black by night, a hairline edge, jetbrains mono 13px.
+// "stop him" carries the site's stop button icon (ring, crown, square).
+export const PILL = {
+  light: { fill: '#ffffff', line: '#e3ded5', ring: '#ebe6dd', ink: '#1a1a1a', shadow: 0.07 },
+  dark: { fill: '#141417', line: '#2c2c33', ring: '#2c2c33', ink: '#ededed', shadow: 0.35 },
+};
+export const BUTTON = { h: 44, size: 13, play: { text: 'play the real one', x: 44, padR: 20 }, stop: { text: 'stop him', x: 46, padR: 18 } };
+export const buttonW = (kind) => Math.ceil(BUTTON[kind].x + textW(BUTTON[kind].text, BUTTON.size) + BUTTON[kind].padR) + 2;
+let BTN_FONT = null;
+export function buttonSvg(kind, themeName) {
+  const T = THEMES[themeName], P = PILL[themeName], B = BUTTON[kind], w = buttonW(kind), h = BUTTON.h + 4;
+  BTN_FONT ??= readFileSync(join(ROOT, 'data/fonts/jetbrains-mono-500-buttons.woff2')).toString('base64');
+  const style = `<style>@font-face{font-family:sr-btn;font-weight:500;src:url(data:font/woff2;base64,${BTN_FONT}) format("woff2")}`
+    + `text{font-family:sr-btn,"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-weight:500}</style>`;
+  const pill = `<rect x="1" y="2.5" width="${w - 2}" height="${BUTTON.h}" rx="${BUTTON.h / 2}" fill="#000000" opacity="${P.shadow}"/>`
+    + `<rect x="1.5" y="1.5" width="${w - 3}" height="${BUTTON.h - 1}" rx="${(BUTTON.h - 1) / 2}" fill="${P.fill}" stroke="${P.line}"/>`;
+  const icon = kind === 'stop'
+    ? `<g transform="translate(1 1)"><circle cx="22" cy="22" r="18" fill="none" stroke="${P.ring}" stroke-width="3"/>`
+      + `<rect x="19.5" y="9.5" width="5" height="3" rx="1" fill="${P.ink}"/><rect x="16" y="17" width="12" height="12" rx="2.5" fill="${P.ink}"/></g>`
+    : miniRunner(T, 29, 31);
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">${style}${pill}${icon}`
+    + `<text x="${B.x}" y="${r2(1 + BUTTON.h / 2 + BUTTON.size * 0.36)}" font-size="${BUTTON.size}" fill="${P.ink}">${B.text}</text></svg>\n`;
+}
+
 // ---------- write everything ----------
 const hash8 = (s) => createHash('sha256').update(s).digest('hex').slice(0, 8);
 
@@ -592,6 +627,7 @@ export function renderAll(state, root = ROOT, now = Date.now()) {
     files[th] = name;
     const p = join(assets, name);
     if (!existsSync(p) || readFileSync(p, 'utf8') !== svg) writeFileSync(p, svg);
+    for (const k of ['play', 'stop']) writeIfChanged(join(assets, `${k}-${th}.svg`), buttonSvg(k, th));
   }
   // old hero files go, new hashes mean camo never serves a stale one
   const phone = phoneSvg(state, cfg, now);
@@ -602,6 +638,7 @@ export function renderAll(state, root = ROOT, now = Date.now()) {
   state.assets = { heroDark: files.dark, heroLight: files.light, phone: files.phone };
   const tmpl = readFileSync(join(root, 'templates/README.md.tmpl'), 'utf8');
   const md = tmpl.replaceAll('{{heroDark}}', files.dark).replaceAll('{{heroLight}}', files.light).replaceAll('{{phone}}', files.phone)
+    .replaceAll('{{playW}}', String(buttonW('play'))).replaceAll('{{stopW}}', String(buttonW('stop')))
     .replaceAll('{{streakLine}}', streakLine(state.streak));
   writeIfChanged(join(root, 'README.md'), md);
   return state.assets;
