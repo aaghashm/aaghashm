@@ -32,6 +32,7 @@ export const WIDE = { s: 1.5, rx: 644, gy: 224 };
 export const NARROW = { s: 1.75, ts: 1.2, rx: 664, gy: 246, x0: 22, maxWidth: 680, counter: 30, bubble: [28, 16] };
 // phone (viewport up to maxWidth): its own 600x300 file. title and bubble on one row, then the track,
 // the counter on the ground. the flag points left, over the timeline, so the runner sits close to the blocks.
+// "you?" sits over the empty hurdle there, so it never meets the counter.
 export const PHONE = { w: 600, h: 300, ts: 1.15, s: 1.6, rx: 415, gy: 244, x0: 16, maxWidth: 600, title: 58, counter: 22, bubble: [24, 14], flag: 24 };
 // where the hurdles show, in model x: [gone, full, full, gone]. outside it they fade to nothing,
 // so a hurdle never sits on the flag, the year labels or the edge of the picture.
@@ -328,7 +329,7 @@ function speech(T, { x, y, size, pad, tail }) {
 }
 export const bubbleBox = (size, pad) => ({ w: sansW('fine. stopped.', size) + pad * 2, h: pad * 2 + size * 2.1, h1: pad * 2 + size * 0.95 });
 
-function hurdle(i, h, T, { ls, ly }) {
+function hurdle(i, h, T, { ls, ly, youUp }) {
   const x0 = START_X[i];
   const legs = `<path d="M-6 ${HURDLE_CY + 9}V${GY}M6 ${HURDLE_CY + 9}V${GY}" stroke="${T.lockInk}" stroke-width="2"/>`;
   const ring = `<circle cy="${HURDLE_CY}" r="${HURDLE_R}" fill="none" stroke="${T.ink}" stroke-width="1.5"/>`;
@@ -345,19 +346,20 @@ function hurdle(i, h, T, { ls, ly }) {
   }
   // the label sits on the ground under the hurdle. the newest slot, still empty, asks for you.
   // ls is the model size and ly the baseline under GY: 10 is 15px wide, 13 is 22.75px in the phone box.
+  // youUp puts "you?" over the bar instead, clear of the counter line under it.
   const label = h ? `<text y="${GY + ly}" font-size="${ls}" text-anchor="middle" fill="${T.gInk}">#${h.n}</text>`
-    : i === 0 ? `<text class="sg" y="${GY + ly}" font-size="${r2(ls * 1.05)}" text-anchor="middle" fill="${T.gAccent}">you?</text>` : '';
+    : i === 0 ? `<text class="sg" y="${youUp ? GY - 23 : GY + ly}" font-size="${r2(ls * 1.05)}" text-anchor="middle" fill="${youUp ? T.accentInk : T.gAccent}">you?</text>` : '';
   return `<g transform="translate(${x0} 0)"><g class="hd h${i}" opacity="${r2(opacityAt(x0))}">${shape}${label}</g></g>`;
 }
 
 // hurdles, runner and the road ahead, in model coordinates. both layouts scale it.
-function action(state, T, { ls, ly, mask }) {
+function action(state, T, { ls, ly, mask, youUp = false }) {
   const out = [];
   out.push(`<path class="ds" d="M${RX + 10} ${GY}H${LANE_R}" stroke="${T.dash}" stroke-width="2" stroke-dasharray="10 14"/>`);
   out.push(`<path class="dr" d="M${RX + 10} ${GY}H${LANE_R}" stroke="${T.dash}" stroke-width="2" stroke-dasharray="10 14" opacity="0"/>`);
   const hs = state.hurdles || [];
   out.push(`<g mask="url(#${mask})">`);
-  for (let i = START_X.length - 1; i >= 0; i--) out.push(hurdle(i, hs[i], T, { ls, ly }));
+  for (let i = START_X.length - 1; i >= 0; i--) out.push(hurdle(i, hs[i], T, { ls, ly, youUp }));
   out.push('</g>');
   out.push(runner(T));
   return out.join('');
@@ -519,7 +521,7 @@ function phoneScene(state, T, cfg, dark, skyId) {
     out.push(flag(streak, T, nx(flagSlot.x + TILE / 2), tileTop - 4, r2(tileTop - 4 - Math.round(P.flag * 2.3) - 10), P.flag, true, true));
   }
   const ax = r2(P.rx - RX * P.s), ay = r2(P.gy - GY * P.s);
-  out.push(`<g transform="translate(${ax} ${ay}) scale(${P.s})">${action(state, T, { ls: 13.75, ly: 13, mask: 'mp' })}</g>`);
+  out.push(`<g transform="translate(${ax} ${ay}) scale(${P.s})">${action(state, T, { ls: 13.75, ly: 13, mask: 'mp', youUp: true })}</g>`);
   const [size, pad] = P.bubble, bw = bubbleBox(size, pad).w, bx = r2(P.w - 14 - bw);
   const head = r2(P.gy - (12 + 29.5) * P.s);
   out.push(speech(T, { x: bx, y: 10, size, pad, tail: [r2(bx + 18), r2(bx + 40), P.rx + 12, r2(head - 14)] }));

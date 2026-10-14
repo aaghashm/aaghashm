@@ -393,8 +393,13 @@ test('phone: 2:1, readable on a 320px screen (a 288px image), big blocks and fac
   // the counter sits on the ground, under the blocks, and ends before the "you?" label
   const m = light.match(/y="([\d.]+)" font-size="([\d.]+)"[^>]*>tried 37 times/);
   assert.ok(+m[1] - +m[2] * 0.75 >= PHONE.gy + 13 * PHONE.s, 'counter below the hurdle labels');
-  const youLeft = PHONE.rx + (START_X[0] - RX) * PHONE.s - sansW('you?', 13.75 * 1.05 * PHONE.s) / 2;
-  assert.ok(PHONE.x0 + textW(counterLine(0), PHONE.counter) + 8 <= youLeft, 'counter runs into you?');
+  // "you?" sits over the empty hurdle, so it never meets the counter as it slides left
+  const empty = phoneSvg({ ...state, tries: 0, hurdles: [] }, cfg);
+  const you = empty.match(/y="([\d.]+)" font-size="([\d.]+)"[^>]*>you\?</);
+  const youBottom = PHONE.gy + (+you[1] - GY + +you[2] * 0.25) * PHONE.s;
+  assert.ok(youBottom <= PHONE.gy - 19 * PHONE.s + 2, 'you? is not over the hurdle bar');
+  const cm = empty.match(/y="([\d.]+)" font-size="([\d.]+)"[^>]*>nobody's tried/);
+  assert.ok(+cm[1] - +cm[2] * 0.75 - youBottom >= 40, 'you? near the counter');
   // the flag points back over the blocks, so the runner can sit close to them
   const P = phoneLayout(cfg, repos);
   assert.ok(PHONE.rx - 7 * PHONE.s - 20 >= P.end);
