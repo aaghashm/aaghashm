@@ -18,7 +18,7 @@
   "stopEnd": "stopped: 0. the real one is playable: https://aaghashm.github.io",
   "repeat": "one try a day. he's still running.\n\nthe real one is playable: https://aaghashm.github.io",
   "knockRepeat": "you already knocked today. it heard you.",
-  "busy": "too many people on the track. try again in a hour.",
+  "busy": "too many people on the track. try again in an hour.",
   "knock": [
     {
       "from": 1,
