@@ -7,7 +7,7 @@
   </picture>
 </a>
 
-<sub>each block is a public repo, oldest first. press stop him and your face becomes his next hurdle.</sub>
+<sub>each block is a public repo, oldest first. grey ones are the quiet stretches. press stop him and your face becomes his next hurdle.</sub>
 
 <a href="https://aaghashm.github.io"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/aaghashm/aaghashm/main/assets/play-dark.svg"><img width="200" alt="play the real one" src="https://raw.githubusercontent.com/aaghashm/aaghashm/main/assets/play-light.svg"></picture></a> <a href="https://github.com/aaghashm/aaghashm/issues/new?title=stop&body=just%20press%20submit.%20he%20answers%20here%20in%20about%20a%20minute%2C%20and%20your%20face%20becomes%20his%20next%20hurdle."><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/aaghashm/aaghashm/main/assets/stop-dark.svg"><img width="129" alt="stop him" src="https://raw.githubusercontent.com/aaghashm/aaghashm/main/assets/stop-light.svg"></picture></a>
 

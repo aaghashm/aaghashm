@@ -259,6 +259,8 @@ test('README: one stop joke, honest gaps, links persistent-stopwatch, no bio rep
   const md = readFileSync(join(ROOT, 'README.md'), 'utf8');
   assert.doesNotMatch(md, /nobody's stopped/);
   assert.doesNotMatch(md, /still running\. most of it's private/);
+  // the locks are the quiet gaps between repos, nothing more is claimed
+  assert.match(md, /grey ones are the quiet stretches/);
   assert.doesNotMatch(md, /can't see/);
   // phones get the 2:1 picture first; it carries no color scheme, so github's theme switch leaves it alone
   assert.match(md, /<picture>\s*<source media="\(max-width: 600px\)" srcset="[^"]+\/assets\/phone-[0-9a-f]{8}\.svg">\s*<source media="\(prefers-color-scheme: dark\)"/);
