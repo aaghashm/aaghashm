@@ -282,7 +282,9 @@ test('README: fresh riddles, one short line under the wall', () => {
   assert.doesNotMatch(md, /footsteps|what gets you to the end/);
   assert.match(md, /\*\*your shadow\.\*\*/);
   assert.match(md, /\*\*the next step\.\*\*/);
-  const sub = md.match(/<sub>(pick a color[^<]*)<\/sub>/)[1];
-  assert.ok(sub.startsWith('pick a color. it paints the blinking spot. one a day.'), sub);
+  const sub = md.match(/<sub>(tap a color[^<]*)<\/sub>/)[1];
+  assert.ok(sub.startsWith('tap a color, press submit, and your square shows up on the wall in about a minute. one a day.'), sub);
+  assert.match(md, /\*\*paint the wall together\.\*\*/);
+  assert.doesNotMatch(md, /<a href="[^"]*title=paint[^"]*"><picture><source[^>]*wall-/);
   assert.doesNotMatch(sub, /change the two numbers/);
 });
