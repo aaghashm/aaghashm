@@ -1,10 +1,12 @@
-// builds the hero svgs (dark + light), the phone heroes, the two buttons and README.md from data/state.json.
+// builds the hero svgs (dark + light), the phone heroes, the buttons, the wall and README.md from data/state.json + data/wall.json.
 // pure functions are exported for the tests. run directly: node scripts/render.mjs
 import { createHash } from 'node:crypto';
 import { readFileSync, writeFileSync, readdirSync, unlinkSync, existsSync, realpathSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { ICONS } from './icons.mjs';
+import { sceneAt, skyFor, SNOW, fallers, fallCss } from './scene.mjs';
+import { readWall, wallSvg, chipSvg, PALETTE, paintLinks, paintersLine, wallLink } from './wall.mjs';
 
 export const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -68,6 +70,10 @@ export const THEMES = {
     board: '#ffffff', boardLine: '#e3ded5', lockFace: '#e2e8f0', lockShade: '#cbd5e1', lockInk: '#64748b', live: '#2fb35c',
   },
 };
+// the base theme plus the sky for this hour and season (see scene.mjs)
+export function themeFor(name, sc) {
+  return { ...THEMES[name], ...skyFor(name, sc), lamp: sc.phase === 'night', season: sc.season, phase: sc.phase, theme: name, snow: SNOW[name].lie };
+}
 // tile colors and short names are the site's
 export const LANG = {
   Python: { c: '#3b82f6', icon: 'python' },
@@ -114,13 +120,6 @@ export function sinceStart(start, today) {
   const ann = (yr) => Date.UTC(yr, sm - 1, sd) / 864e5;
   if (dayNum(today) < ann(y)) y--;
   return { y: y - sy, d: dayNum(today) - ann(y) };
-}
-
-// the README paragraph. the flag already says "day N", so this says when it started.
-export function streakLine(st) {
-  const s = st || { current: 0, best: 0 };
-  if (s.current > 0) return s.start ? `a commit every day since ${fmtShort(s.start)}.` : `a commit every day for ${s.current} days.`;
-  return `best run so far: ${s.best} days of daily commits.`;
 }
 
 export function counterLine(tries) {
@@ -214,7 +213,7 @@ function fontCss() {
 }
 
 // the hero hides #wide under NARROW.maxWidth. the phone files are one theme each, picked by the README.
-function css(wobble, phone = false) {
+function css(wobble, phone = false, season = null) {
   const kf = [];
   START_X.forEach((x0, i) => {
     const pts = hurdlePoints(x0);
@@ -252,6 +251,8 @@ ${START_X.map((_, i) => `.h${i}{animation-name:h${i}}`).join('')}
 .tk{animation:tk 60s steps(60) infinite}@keyframes tk{to{transform:rotate(360deg)}}
 .lv{animation:lv 2s ease-in-out infinite}@keyframes lv{50%{opacity:.25}}
 ${wobble ? '.wob{animation:wob 3s ease-in-out infinite;transform-box:fill-box;transform-origin:50% 100%}@keyframes wob{0%,100%{transform:rotate(0)}10%{transform:rotate(-6deg)}20%{transform:rotate(6deg)}30%{transform:rotate(0)}}' : ''}
+${fallCss(season)}
+${season === 'summer' ? '.hz{animation:hz 5s ease-in-out infinite alternate}@keyframes hz{from{transform:translateX(-12px);opacity:.35}to{transform:translateX(12px);opacity:1}}' : ''}
 ${phone ? '' : `@media (max-width:${NARROW.maxWidth}px){#wide{display:none}#narrow{display:inline}}`}
 @media (prefers-reduced-motion:reduce){*{animation:none!important}}
 `.trim().replace(/\n+/g, '\n');
@@ -295,9 +296,12 @@ function lockTile(x, T, cls) {
 function runner(T) {
   const leg = (cls, col, rot) => `<g class="${cls}"${rot != null ? ` transform="rotate(${rot})"` : ''}><path d="M0 0 1.2 6.5 -.6 12" stroke="${col}" stroke-width="4.2"/></g>`;
   const arm = (cls, col, rot, d = 'M0 0 0 5.5 3.2 9.4') => `<g transform="translate(1 -11)"><g class="${cls}"${rot != null ? ` transform="rotate(${rot})"` : ''}><path d="${d}" stroke="${col}" stroke-width="3.4"/></g></g>`;
-  const body = (lean) => `<g transform="rotate(${lean})"><rect x="-6.5" y="-16" width="13" height="18" rx="6.5" fill="${T.rInk}"/>`
+  // at night he wears a headlamp: a strap, a small lamp on his forehead and a soft beam down the track ahead
+  const beam = T.lamp ? `<path d="M8.5 -25.5L82 -46L82 -1Z" fill="url(#beam)"/>` : '';
+  const lamp = T.lamp ? `<path d="M-5.6 -24.6Q1 -29.6 8.6 -26.4" stroke="${T.scarf}" stroke-width="1.8"/><circle cx="8.4" cy="-25.6" r="2" fill="#fff6cf"/>` : '';
+  const body = (lean) => `<g transform="rotate(${lean})">${beam}<rect x="-6.5" y="-16" width="13" height="18" rx="6.5" fill="${T.rInk}"/>`
     + `<circle cx="1.5" cy="-22" r="7.5" fill="${T.rInk}"/><ellipse cx="5" cy="-23" rx="1.4" ry="1.9" fill="${T.rEye}"/>`
-    + `<rect x="-6" y="-15.5" width="13" height="4.5" rx="2.2" fill="${T.scarf}"/></g>`;
+    + `<rect x="-6" y="-15.5" width="13" height="4.5" rx="2.2" fill="${T.scarf}"/>${lamp}</g>`;
   const tailA = 'M-5 -13.5c-5-1-8 3-13 1.5s-7-3.5-11-1';
   // standing: hands on hips, scarf hanging. this is the static frame.
   const standing = `<g class="sw">`
@@ -346,6 +350,7 @@ function hurdle(i, h, T, { ls, ly, youUp }) {
     shape = `<path d="M-9 ${GY - 16}V${GY}M9 ${GY - 16}V${GY}" stroke="${T.lockInk}" stroke-width="2"/>`
       + `<rect x="-12" y="${GY - 19}" width="24" height="5" rx="2" fill="${T.lockInk}"/>`;
   }
+  if (T.season === 'snow') shape += h ? `<ellipse cy="${HURDLE_CY - 12}" rx="6.5" ry="2.4" fill="${T.snow}"/>` : `<rect x="-12.5" y="${GY - 21}" width="25" height="3.4" rx="1.7" fill="${T.snow}"/>`;
   // the label sits on the ground under the hurdle. the newest slot, still empty, asks for you.
   // ls is the model size and ly the baseline under GY: 10 is 15px wide, 13 is 22.75px in the phone box.
   // youUp puts "you?" over the bar instead, clear of the counter line under it.
@@ -375,6 +380,8 @@ function tiles(layout, T, cfg) {
   for (const s of slots) {
     if (s.kind === 'lock') out.push(lockTile(s.x, T, s === wobbleSlot ? 'wob' : ''));
     else s.tower.repos.forEach((r, k) => out.push(repoTile(r, s.x, GY - TILE - k * STACK, cfg)));
+    // winter: a little snow on top of every block and lock
+    if (T.season === 'snow') out.push(`<rect x="${s.x + 1.5}" y="${GY - TILE - (s.kind === 'lock' ? 0 : (s.tower.repos.length - 1) * STACK) - 2.2}" width="${TILE - 3}" height="4.4" rx="2.2" fill="${T.snow}"/>`);
   }
   return out.join('');
 }
@@ -396,18 +403,22 @@ function flag(streak, T, px, top, fy, size, short = false, toLeft = false) {
 // o: { gy, mark: [x, baseline, size] (optional), moon: [x, y, scale], k (mountain height scale), w, h, sky (gradient id) }
 const PEAKS = [[-20, 46], [70, 150], [160, 70], [250, 190], [345, 60], [430, 132], [520, 52], [610, 176], [700, 66], [790, 140], [880, 50]];
 const STARS = [[44, 22], [131, 108], [196, 34], [372, 112], [318, 18], [377, 120], [452, 28], [489, 86], [604, 40], [655, 16], [702, 104], [765, 120], [823, 96], [96, 70], [574, 110], [410, 64]];
-function backdrop(T, dark, o) {
+function backdrop(T, o) {
   const { gy, k } = o, w = o.w || W, h = o.h || H, out = [];
   out.push(`<rect width="${w}" height="${h}" fill="url(#${o.sky || 'sky'})"/>`);
-  // stars: three brightnesses, one path each
-  if (dark) for (const [k, op, sz] of [[0, 0.85, 2.2], [1, 0.5, 1.6], [2, 0.7, 1.6]]) {
-    out.push(`<path d="${STARS.filter((_, i) => i % 3 === k).map(([x, y]) => `M${x} ${Math.round(y * gy / 224)}h${sz}v${sz}h-${sz}z`).join('')}" fill="#fffaeb" opacity="${op}"/>`);
+  // stars: three brightnesses, one path each. fewer and fainter at dawn and dusk.
+  if (T.stars) for (const [k, op, sz] of [[0, 0.85, 2.2], [1, 0.5, 1.6], [2, 0.7, 1.6]]) {
+    out.push(`<path d="${STARS.filter((_, i) => i % 3 === k).map(([x, y]) => `M${x} ${Math.round(y * gy / 224)}h${sz}v${sz}h-${sz}z`).join('')}" fill="${T.star}" opacity="${r2(op * T.stars)}"/>`);
   }
-  const [mx, my, ms] = o.moon;
+  // the moon at night, the sun by day. at dawn and dusk the sun sits low on the ridge in a wide warm glow.
+  // in summer the day sun gets the same glow, bigger.
+  const [mx0, my0, ms] = o.moon, my = T.low ? r2(gy - 100 * k) : my0, mx = r2(mx0 + (T.dx || 0) * ms);
+  const warm = T.low || (T.season === 'summer' && T.body === 'sun');
+  if (warm) out.push(`<circle cx="${mx}" cy="${my}" r="${r2((T.low ? 170 : 290) * ms)}" fill="url(#glow)"/>`);
   out.push(`<g transform="translate(${mx} ${my}) scale(${ms})">`
-    + (dark
-      ? `<circle r="32" fill="#fff0d7" opacity=".07"/><circle r="17" fill="#f2e8d2"/><circle cx="8" cy="-4.5" r="14.5" fill="${mixHex(T.sky0, T.sky1, my / 240)}"/>`
-      : `<circle r="34" fill="#fffaf2" opacity=".4"/><circle r="20" fill="#fffaf2" opacity=".95"/>`)
+    + (T.body === 'moon'
+      ? `<circle r="32" fill="${T.glow}" opacity="${T.glowOp}"/><circle r="17" fill="${T.sun}"/><circle cx="8" cy="-4.5" r="14.5" fill="${mixHex(T.sky0, T.sky1, my / (o.skyH || 240))}"/>`
+      : `${warm ? '' : `<circle r="34" fill="${T.glow}" opacity="${T.glowOp}"/>`}<circle r="${T.low ? 22 : 20}" fill="${T.sun}" opacity="${T.sunOp ?? 0.95}"/>`)
     + '</g>');
   const pts = PEAKS.map(([x, h]) => [x, r2(gy - h * k)]);
   out.push(`<path d="M-20 ${gy}${pts.map(([x, y]) => `L${x} ${y}`).join('')}L860 ${gy}Z" fill="${T.far}"/>`);
@@ -417,6 +428,15 @@ function backdrop(T, dark, o) {
     if (y > a[1] || y > c[1]) return '';
     return `M${x} ${y}L${a[0]} ${a[1]}L${r2(a[0] + (x - a[0]) * 0.55)} ${r2(a[1] + (gy - a[1]) * 0.2)}Z`;
   }).join('')}" fill="${T.farLit}"/>`);
+  if (T.season === 'snow') {
+    out.push(`<path d="${pts.slice(1, -1).map(([x, y], i) => {
+      const a = pts[i], c = pts[i + 2];
+      if (y > a[1] || y > c[1] || gy - y < 50 * k) return '';
+      const at = (p, f) => [r2(x + (p[0] - x) * f), r2(y + (p[1] - y) * f)];
+      const [l, r] = [at(a, 0.2), at(c, 0.2)], [l2, r2_] = [at(a, 0.12), at(c, 0.14)];
+      return `M${x} ${y}L${l[0]} ${l[1]}L${r2((l[0] + x) / 2)} ${r2(l2[1] + 2)}L${x} ${r2(l[1] - 1)}L${r2((r[0] + x) / 2)} ${r2(r2_[1] + 2)}L${r[0]} ${r[1]}Z`;
+    }).join('')}" fill="${T.snow}" opacity="${T.theme === 'dark' ? 0.5 : 0.95}"/>`);
+  }
   // hills: a smooth wave, cosine eased between heights
   const hh = [34, 58, 30, 66, 40, 54, 28, 60, 36];
   let d = `M-10 ${gy}`;
@@ -426,17 +446,26 @@ function backdrop(T, dark, o) {
     d += `L${x} ${Math.round(gy - (a + (b2 - a) * (1 - Math.cos(f * Math.PI)) / 2) * k * 0.8)}`;
   }
   out.push(`<path d="${d}L850 ${gy}Z" fill="${T.mid}"/>`);
+  // summer days: a faint heat shimmer over the hills
+  if (T.haze) {
+    const wave = (y) => `M-20 ${y}q10 -2.2 20 0${'t20 0'.repeat(Math.ceil((w + 40) / 20))}`;
+    out.push(`<g class="hz" fill="none" stroke="${T.haze}" stroke-width="2" stroke-linecap="round">${[10, 20, 31].map((dy, i) => `<path d="${wave(gy - dy)}" opacity="${[0.55, 0.4, 0.25][i]}"/>`).join('')}</g>`);
+  }
   if (o.mark) {
     const [yx, yb, ys] = o.mark;
     out.push(`<text class="sg" x="${yx}" y="${yb}" font-size="${ys}" text-anchor="middle" fill="${T.mark}" opacity="${T.markOp}">${esc(o.year)}</text>`);
   }
   out.push(`<rect y="${gy}" width="${w}" height="${h - gy}" fill="${T.ground}"/><rect y="${gy}" width="${w}" height="4" fill="${T.edge}"/>`);
+  // winter: snow lies along the ground's edge, in soft drifts
+  if (T.season === 'snow') {
+    out.push(`<path d="M0 ${gy - 1}${[40, 150, 260, 380, 500, 610, 730, 830].filter((x) => x < w + 40).map((x, i) => `Q${x - 30} ${gy - 1} ${x - 20} ${r2(gy - 3.5 - (i % 3))}T${x} ${gy - 1}`).join('')}H${w}V${gy + 4}H0Z" fill="${T.snow}"/>`);
+  }
   // a few worn marks in the dirt, like the site's
   out.push(`<path d="${[[70, 0.5], [190, 0.85], [330, 0.25], [415, 0.7], [560, 0.4], [700, 0.9], [790, 0.2]].filter(([x]) => x < w - 20).map(([x, f]) => `M${x} ${r2(gy + 10 + f * (h - gy - 18))}h${r2(8 + f * 14)}`).join('')}" stroke="${T.tex}" stroke-width="3" stroke-linecap="round"/>`);
   return out.join('');
 }
 
-function wideScene(state, T, cfg, dark) {
+function wideScene(state, T, cfg) {
   const out = [], Wd = WIDE;
   const layout = layoutTimeline(state.repos || [], cfg);
   const { slots, flagSlot } = layout;
@@ -444,7 +473,8 @@ function wideScene(state, T, cfg, dark) {
   const today = state.lastDaily || state.today || new Date().toISOString().slice(0, 10);
   const dy = Wd.gy - GY;
   // the year sits over the open sky above the timeline, not behind the runner
-  out.push(backdrop(T, dark, { gy: Wd.gy, k: 0.62, year: today.slice(0, 4), mark: [MARK.wide[0], Wd.gy - MARK.wide[1], MARK.wide[2]], moon: [556, 50, 1] }));
+  out.push(backdrop(T, { gy: Wd.gy, k: 0.62, year: today.slice(0, 4), mark: [MARK.wide[0], Wd.gy - MARK.wide[1], MARK.wide[2]], moon: [556, 50, 1] }));
+  out.push(fallers(T.season, { w: W, gy: Wd.gy, n: 10, snow: 22, theme: T.theme, clear: 360 }));
   // track: the ground's lit edge is the timeline. the streak part is accent while it's alive, then the road ahead
   const fx = flagSlot ? flagSlot.x + TILE : 462;
   if (streak.current > 0) out.push(`<path d="M${fx} ${Wd.gy}H${Wd.rx}" stroke="${T.accent}" stroke-width="3.5" stroke-linecap="round"/>`);
@@ -478,12 +508,13 @@ function wideScene(state, T, cfg, dark) {
 }
 
 // tablets (the image is 440-680 css px there): title and bubble on top, every block below with one lock per gap
-function narrowScene(state, T, cfg, dark) {
+function narrowScene(state, T, cfg) {
   const N = NARROW, out = [];
   const layout = layoutTimeline(state.repos || [], cfg, 1);
   const { slots, flagSlot } = layout;
   const streak = state.streak || { current: 0, best: 0 };
-  out.push(backdrop(T, dark, { gy: N.gy, k: 0.72, moon: [568, 126, 0.7] }));
+  out.push(backdrop(T, { gy: N.gy, k: 0.72, moon: [568, 126, 0.7] }));
+  out.push(fallers(T.season, { w: W, gy: N.gy, n: 8, snow: 16, theme: T.theme, clear: 600 }));
   const ox = r2(N.x0 - SLOT0 * N.ts), oy = r2(N.gy - GY * N.ts);
   const nx = (x) => r2(ox + x * N.ts);
   const end = slots.length ? nx(slots.at(-1).x + TILE) : 420;
@@ -509,12 +540,13 @@ export function phoneLayout(cfg, repos) {
   const tallest = Math.max(1, ...layout.towers.map((t) => t.repos.length));
   return { layout, ox, oy, nx, end: layout.slots.length ? nx(layout.slots.at(-1).x + TILE) : 360, top: r2(P.gy - (TILE + (tallest - 1) * STACK) * P.ts) };
 }
-function phoneScene(state, T, cfg, dark) {
+function phoneScene(state, T, cfg) {
   const P = PHONE, out = [];
   const { layout, ox, oy, nx, end } = phoneLayout(cfg, state.repos || []);
   const { flagSlot } = layout;
   const streak = state.streak || { current: 0, best: 0 };
-  out.push(backdrop(T, dark, { gy: P.gy, k: 0.6, w: P.w, h: P.h, sky: 'skyp', moon: [528, 132, 0.6] }));
+  out.push(backdrop(T, { gy: P.gy, k: 0.6, w: P.w, h: P.h, sky: 'skyp', skyH: P.gy, moon: [528, 132, 0.6] }));
+  out.push(fallers(T.season, { w: P.w, gy: P.gy, n: 7, snow: 16, theme: T.theme, clear: P.w }));
   const fx = flagSlot ? nx(flagSlot.x + TILE) : end;
   if (streak.current > 0) out.push(`<path d="M${fx} ${P.gy}H${P.rx}" stroke="${T.accent}" stroke-width="4.5" stroke-linecap="round"/>`);
   out.push(`<g transform="translate(${ox} ${oy}) scale(${P.ts})">${tiles(layout, T, cfg)}</g>`);
@@ -547,16 +579,19 @@ const avatarDefs = (state) => (state.hurdles || []).slice(0, 5).map((h, i) => h 
   ? `<image id="av${i}" x="-${HURDLE_R}" y="-${HURDLE_R}" width="${HURDLE_R * 2}" height="${HURDLE_R * 2}" preserveAspectRatio="xMidYMid slice" clip-path="url(#avc)" href="${h.avatar}"/>` : '').join('');
 const skyDef = (id, T, y2) => `<linearGradient id="${id}" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="0" y2="${y2}"><stop offset="0" stop-color="${T.sky0}"/><stop offset="1" stop-color="${T.sky1}"/></linearGradient>`;
 const AVC = `<clipPath id="avc" clipPathUnits="objectBoundingBox"><circle cx=".5" cy=".5" r=".5"/></clipPath>`;
+// the low sun's glow and the headlamp's beam, only when the scene has them
+const lightDefs = (T) => (T.low || (T.season === 'summer' && T.body === 'sun')
+  ? `<radialGradient id="glow"><stop offset="0" stop-color="${T.glow}" stop-opacity="${T.glowOp}"/><stop offset=".45" stop-color="${T.glow}" stop-opacity="${r2(T.glowOp * 0.45)}"/><stop offset="1" stop-color="${T.glow}" stop-opacity="0"/></radialGradient>` : '')
+  + (T.lamp ? `<linearGradient id="beam" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#fff3c4" stop-opacity=".55"/><stop offset="1" stop-color="#fff3c4" stop-opacity="0"/></linearGradient>` : '');
 
 export function heroSvg(state, cfg, themeName, now = Date.now()) {
-  const T = THEMES[themeName];
+  const T = themeFor(themeName, sceneAt(now));
   const wobble = wobbling(state, now);
   usedIcons = new Set();
-  const dark = themeName === 'dark';
-  const wide = wideScene(state, T, cfg, dark), narrow = narrowScene(state, T, cfg, dark);
+  const wide = wideScene(state, T, cfg), narrow = narrowScene(state, T, cfg);
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">`
-    + `<style>${css(wobble)}</style>`
-    + `<defs>${AVC}`
+    + `<style>${css(wobble, false, T.season)}</style>`
+    + `<defs>${AVC}${lightDefs(T)}`
     + `<clipPath id="card"><rect width="${W}" height="${H}" rx="16"/></clipPath>`
     + skyDef('sky', T, 240)
     + showMask('mw', SHOW.wide) + showMask('mn', SHOW.narrow)
@@ -569,12 +604,12 @@ export function heroSvg(state, cfg, themeName, now = Date.now()) {
 // the phone file, one per theme. the README picks it with (max-width: 600px) and (prefers-color-scheme: dark),
 // which github's own theme switch rewrites, so it follows github's theme, not the phone's.
 export function phoneSvg(state, cfg, themeName, now = Date.now()) {
-  const P = PHONE, T = THEMES[themeName], wobble = wobbling(state, now);
+  const P = PHONE, T = themeFor(themeName, sceneAt(now)), wobble = wobbling(state, now);
   usedIcons = new Set();
-  const scene = phoneScene(state, T, cfg, themeName === 'dark');
+  const scene = phoneScene(state, T, cfg);
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${P.w}" height="${P.h}" viewBox="0 0 ${P.w} ${P.h}">`
-    + `<style>${css(wobble, true)}</style>`
-    + `<defs>${AVC}<clipPath id="pc"><rect width="${P.w}" height="${P.h}" rx="14"/></clipPath>`
+    + `<style>${css(wobble, true, T.season)}</style>`
+    + `<defs>${AVC}${lightDefs(T)}<clipPath id="pc"><rect width="${P.w}" height="${P.h}" rx="14"/></clipPath>`
     + skyDef('skyp', T, P.gy)
     + showMask('mp', SHOW.phone)
     + `${avatarDefs(state)}${iconDefs()}</defs>`
@@ -620,7 +655,10 @@ export function buttonSvg(kind, themeName) {
 // ---------- write everything ----------
 const hash8 = (s) => createHash('sha256').update(s).digest('hex').slice(0, 8);
 
-export function renderAll(state, root = ROOT, now = Date.now()) {
+export const RAW = 'https://raw.githubusercontent.com/aaghashm/aaghashm/main/assets/';
+const monoFace = () => `@font-face{font-family:sr-mono;font-weight:500;src:url(data:font/woff2;base64,${readFileSync(join(ROOT, 'data/fonts/jetbrains-mono-500.woff2')).toString('base64')}) format("woff2")}`;
+
+export function renderAll(state, root = ROOT, now = Date.now(), wall = readWall(root), repo = 'aaghashm/aaghashm') {
   const cfg = JSON.parse(readFileSync(join(root, 'data/repos.json'), 'utf8'));
   const assets = join(root, 'assets');
   const files = {};
@@ -634,15 +672,21 @@ export function renderAll(state, root = ROOT, now = Date.now()) {
     const phone = phoneSvg(state, cfg, th, now);
     files['phone-' + th] = `phone-${th}-${hash8(phone)}.svg`;
     writeIfChanged(join(assets, files['phone-' + th]), phone);
+    const ws = wallSvg(wall, th, monoFace(), sceneAt(now));
+    files['wall-' + th] = `wall-${th}-${hash8(ws)}.svg`;
+    writeIfChanged(join(assets, files['wall-' + th]), ws);
   }
+  for (const p of PALETTE) writeIfChanged(join(assets, `paint-${p.name}.svg`), chipSvg(p));
   // old hero files go, new hashes mean camo never serves a stale one
   const keep = new Set(Object.values(files));
-  for (const f of readdirSync(assets)) if (/^(hero|phone)(-(dark|light))?-[0-9a-f]{8}\.svg$/.test(f) && !keep.has(f)) unlinkSync(join(assets, f));
-  state.assets = { heroDark: files.dark, heroLight: files.light, phoneDark: files['phone-dark'], phoneLight: files['phone-light'] };
+  for (const f of readdirSync(assets)) if (/^(hero|phone|wall)(-(dark|light))?-[0-9a-f]{8}\.svg$/.test(f) && !keep.has(f)) unlinkSync(join(assets, f));
+  state.assets = { heroDark: files.dark, heroLight: files.light, phoneDark: files['phone-dark'], phoneLight: files['phone-light'], wallDark: files['wall-dark'], wallLight: files['wall-light'] };
   const tmpl = readFileSync(join(root, 'templates/README.md.tmpl'), 'utf8');
   const md = tmpl.replaceAll('{{heroDark}}', files.dark).replaceAll('{{heroLight}}', files.light).replaceAll('{{phoneDark}}', files['phone-dark']).replaceAll('{{phoneLight}}', files['phone-light'])
     .replaceAll('{{playW}}', String(buttonW('play'))).replaceAll('{{stopW}}', String(buttonW('stop')))
-    .replaceAll('{{streakLine}}', streakLine(state.streak));
+    .replaceAll('{{wallDark}}', files['wall-dark']).replaceAll('{{wallLight}}', files['wall-light'])
+    .replaceAll('{{wallLink}}', wallLink(wall, repo)).replaceAll('{{paintLinks}}', paintLinks(wall, repo, RAW))
+    .replaceAll('{{painters}}', paintersLine(wall));
   writeIfChanged(join(root, 'README.md'), md);
   return state.assets;
 }
@@ -651,6 +695,8 @@ function writeIfChanged(p, s) { if (!existsSync(p) || readFileSync(p, 'utf8') !=
 if (process.argv[1] && fileURLToPath(import.meta.url) === realpathSync(process.argv[1])) {
   const sp = join(ROOT, 'data/state.json');
   const state = JSON.parse(readFileSync(sp, 'utf8'));
+  const wp = join(ROOT, 'data/wall.json');
+  if (!existsSync(wp)) writeFileSync(wp, JSON.stringify(readWall(ROOT), null, 1) + '\n');
   renderAll(state);
   writeFileSync(sp, JSON.stringify(state, null, 1) + '\n');
   console.log('rendered', state.assets);
