@@ -386,8 +386,11 @@ test('phone: 2:1, readable on a 320px screen (a 288px image), big blocks and fac
   // title and bubble share the top row without touching
   const [bs, bp] = PHONE.bubble, bx = PHONE.w - 14 - bubbleBox(bs, bp).w;
   assert.ok(PHONE.x0 + sansW('still running.', PHONE.title) - 13 * 1.5 + 12 <= bx, 'title runs into the bubble');
-  // and the bubble clears his head at the top of a jump
+  // and the bubble clears his head at the top of a jump; its tail is short, it stops near the bubble
   assert.ok(10 + bubbleBox(bs, bp).h <= PHONE.gy - (12 + 29.5 + 34) * PHONE.s);
+  const tips = [...light.matchAll(/<path d="M[^"]*L([\d.]+) ([\d.]+)L[^"]*"[^>]*stroke="#e3ded5"/g)].map((m) => +m[2]);
+  assert.equal(tips.length, 2);
+  for (const [i, h] of [bubbleBox(bs, bp).h1, bubbleBox(bs, bp).h].entries()) assert.ok(tips[i] - (10 + h) <= 18, `tail ${tips[i] - (10 + h)}px long`);
   // the space under the title is open down to the tallest tower
   assert.ok(56 + PHONE.title * 0.25 + 16 <= phoneLayout(cfg, repos).top, 'title vs the tallest tower');
   // the counter sits on the ground, under the blocks, and ends before the "you?" label

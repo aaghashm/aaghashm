@@ -319,10 +319,12 @@ function bubblePath(x, y, w, h, r, [b0, b1, tx, ty]) {
   return `M${x + r} ${y}H${r2(x + w - r)}a${r} ${r} 0 0 1 ${r} ${r}V${r2(y + h - r)}a${r} ${r} 0 0 1 -${r} ${r}`
     + `H${b1}L${tx} ${ty}L${b0} ${r2(y + h)}H${x + r}a${r} ${r} 0 0 1 -${r} -${r}V${y + r}a${r} ${r} 0 0 1 ${r} -${r}Z`;
 }
-function speech(T, { x, y, size, pad, tail }) {
+// tailLen: a short tail, its tip that far under each box, instead of one shared tip
+function speech(T, { x, y, size, pad, tail, tailLen }) {
   const { w, h, h1 } = bubbleBox(size, pad), r = Math.round(size * 0.55);
   const l1 = r2(y + pad + size * 0.8), l2 = r2(l1 + size * 1.25);
-  const box = (hh) => `<path d="${bubblePath(x, y, r2(w), r2(hh), r, tail)}" fill="${T.board}" stroke="${T.boardLine}" stroke-width="${r2(size / 14)}"/>`;
+  const tip = (hh) => tailLen ? [tail[0], tail[1], tail[2], r2(y + hh + tailLen)] : tail;
+  const box = (hh) => `<path d="${bubblePath(x, y, r2(w), r2(hh), r, tip(hh))}" fill="${T.board}" stroke="${T.boardLine}" stroke-width="${r2(size / 14)}"/>`;
   const line1 = `<text class="sg" x="${x + pad}" y="${l1}" font-size="${size}" fill="${T.ink}">fine. stopped.</text>`;
   return `<g class="b1" opacity="0">${box(h1)}${line1}</g>`
     + `<g class="b2">${box(h)}${line1}<text class="sg" x="${x + pad}" y="${l2}" font-size="${size}" fill="${T.accentInk}">jk.</text></g>`;
@@ -523,8 +525,8 @@ function phoneScene(state, T, cfg, dark, skyId) {
   const ax = r2(P.rx - RX * P.s), ay = r2(P.gy - GY * P.s);
   out.push(`<g transform="translate(${ax} ${ay}) scale(${P.s})">${action(state, T, { ls: 13.75, ly: 13, mask: 'mp', youUp: true })}</g>`);
   const [size, pad] = P.bubble, bw = bubbleBox(size, pad).w, bx = r2(P.w - 14 - bw);
-  const head = r2(P.gy - (12 + 29.5) * P.s);
-  out.push(speech(T, { x: bx, y: 10, size, pad, tail: [r2(bx + 18), r2(bx + 40), P.rx + 12, r2(head - 14)] }));
+  // a short tail, leaning toward him, so it never reaches down into the track
+  out.push(speech(T, { x: bx, y: 10, size, pad, tail: [r2(bx + 18), r2(bx + 38), r2(bx + 16), 0], tailLen: 16 }));
   out.push(`<text class="sg" x="${P.x0 - 2}" y="56" font-size="${P.title}" fill="${T.accentInk}" letter-spacing="-1.5">still running.</text>`);
   // the counter sits on the ground under the blocks, so the sky between the title and the blocks stays clear
   out.push(`<text x="${P.x0}" y="${P.h - 13}" font-size="${P.counter}" fill="${T.gInk}">${esc(counterLine(state.tries || 0))}</text>`);
