@@ -69,10 +69,12 @@
  ],
  "lastDaily": "2026-10-15",
  "assets": {
-  "heroDark": "hero-dark-fe99040b.svg",
-  "heroLight": "hero-light-5d813706.svg",
-  "phoneDark": "phone-dark-4dc1a3b7.svg",
-  "phoneLight": "phone-light-3ef87703.svg"
+  "heroDark": "hero-dark-cae260dd.svg",
+  "heroLight": "hero-light-5600016a.svg",
+  "phoneDark": "phone-dark-53c05652.svg",
+  "phoneLight": "phone-light-2da526b8.svg",
+  "wallDark": "wall-dark-a86807dc.svg",
+  "wallLight": "wall-light-b38999bd.svg"
  },
  "modIssue": null
 }
