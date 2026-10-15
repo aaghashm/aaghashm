@@ -60,7 +60,7 @@ export function mockGithub({ repo = 'aaghashm/aaghashm', owner = 'aaghashm' } = 
       const since = url.searchParams.get('since');
       return send(200, +url.searchParams.get('page') > 1 ? [] : db.commits.filter((c) => c.commit.author.date >= since));
     }
-    if (m === 'GET' && p === `/repos/${repo}/labels/played`) return db.labels.has('played') ? send(200, { name: 'played' }) : send(404, {});
+    if (m === 'GET' && (r = p.match(new RegExp(`^/repos/${repo}/labels/(\\w+)$`)))) return db.labels.has(r[1]) ? send(200, { name: r[1] }) : send(404, {});
     if (m === 'POST' && p === `/repos/${repo}/labels`) { db.labels.add(json.name); return send(201, json); }
     if ((r = p.match(new RegExp(`^/repos/${repo}/issues/(\\d+)(/\\w+)?$`)))) {
       const is = db.issue(+r[1]);

@@ -4,7 +4,7 @@
     "he heard you. he doesn't care.",
     "nope. the private repos need him.",
     "he jumped you. no hard feelings.",
-    "the stopwatch keeps counting across reboots. so does he.",
+    "the clock keeps counting. so does he.",
     "try again tomorrow. he'll still be running."
   ],
   "milestones": {
@@ -33,5 +33,10 @@
       "text": "the lock cracked a little. it says: still private. go play the public part: https://aaghashm.github.io"
     }
   ],
-  "knockTail": "knocks so far: {k}."
+  "knockTail": "knocks so far: {k}.",
+  "paint": "painted {x} {y} {color}. it's on the wall: https://github.com/{user}\n\none pixel a day. see you tomorrow.",
+  "paintBad": "couldn't read that. try `paint 12 7 orange`: column 1-{cols}, row 1-{rows}, then {colors}.",
+  "paintRepeat": "one pixel a day. yours is already up. come back tomorrow.",
+  "paintLocked": "{x} {y} was painted less than an hour ago. pick another spot.",
+  "paintBusy": "the wall's busy. try again in an hour."
 }

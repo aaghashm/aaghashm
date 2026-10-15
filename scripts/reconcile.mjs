@@ -1,5 +1,5 @@
 // the one entry point for every run (issue opened, daily cron, manual dispatch).
-// it never trusts its own trigger: it drains every open stop/knock issue, runs the
+// it never trusts its own trigger: it drains every open stop/knock/paint issue, runs the
 // daily refresh if today's hasn't happened yet, renders, commits, pushes, then replies.
 //
 // untrusted input (issue titles, logins) is only compared against fixed values.
@@ -13,6 +13,8 @@ import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { renderAll, ROOT } from './render.mjs';
+import { sceneAt } from './scene.mjs';
+import { readWall, parsePaint, isLocked, applyPaint, pruneWall, scrubPainter, colorOf, colorNames, PAINT_MAX, COLS, ROWS } from './wall.mjs';
 
 const env = process.env;
 const API = (env.GITHUB_API_URL || 'https://api.github.com').replace(/\/$/, '');
@@ -35,7 +37,7 @@ const log = (...a) => console.log(...a);
 // ---------- pure helpers (tested) ----------
 export const dateIn = (tz, d) => new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' }).format(d);
 export const addDays = (iso, n) => new Date(Date.parse(iso + 'T12:00:00Z') + n * 864e5).toISOString().slice(0, 10);
-export const gameKind = (title) => TITLES[String(title ?? '').trim().toLowerCase()] || null;
+export const gameKind = (title) => TITLES[String(title ?? '').trim().toLowerCase()] || (parsePaint(title) ? 'paint' : null);
 export const seenKey = (login, kind) => createHash('sha256').update(login.toLowerCase() + ':' + kind).digest('hex').slice(0, 16);
 
 // commit dates (iso strings) -> {current, start}. counts back from today, or from yesterday if today has none yet.
@@ -56,9 +58,10 @@ export function knockLine(lines, k) {
 }
 
 // can this user's face go on the track?
+export const blocked = (user, block) => block.ids.includes(user.id) || block.logins.map((l) => l.toLowerCase()).includes(String(user.login).toLowerCase());
 export function eligible(user, block, now) {
   if (!user || user.type !== 'User') return false;
-  if (block.ids.includes(user.id) || block.logins.map((l) => l.toLowerCase()).includes(String(user.login).toLowerCase())) return false;
+  if (blocked(user, block)) return false;
   if (now - Date.parse(user.created_at) < 30 * 864e5) return false;
   return (user.public_repos || 0) >= 1 || (user.followers || 0) >= 1;
 }
@@ -138,7 +141,7 @@ export const removeHow = (repo, who) => `\`gh workflow run play.yml -R ${repo} -
 async function notifyFace(state, n, login) {
   if (!state.modIssue) {
     const body = 'faces go up on their own. every new one gets a line here, so you can check it.\n\n'
-      + 'to take one off the track and block that account from coming back, run:\n\n'
+      + 'to take one off the track (and its name off the wall) and block that account from coming back, run:\n\n'
       + removeHow(REPO, '<login>') + '\n\n'
       + 'the hurdle number works too (`-f remove=37`). or on the web: actions > play > run workflow > remove.';
     const { data } = await api('POST', `/repos/${REPO}/issues`, { title: MOD_TITLE, body });
@@ -179,6 +182,8 @@ async function pass(now, trigger, t0) {
   if (!state.modIssue && modIssueNum) state.modIssue = modIssueNum;
   const cfg = JSON.parse(readFileSync(join(ROOT, 'data/repos.json'), 'utf8'));
   const lines = JSON.parse(readFileSync(join(ROOT, 'data/lines.json'), 'utf8'));
+  const wp = join(ROOT, 'data/wall.json'), wall = readWall(ROOT);
+  const todayUTC = now.toISOString().slice(0, 10), stamp = now.toISOString().replace(/\.\d+Z$/, 'Z');
   const msgs = [], replies = [];
   let blockChanged = false;
 
@@ -198,8 +203,9 @@ async function pass(now, trigger, t0) {
     blockChanged = true;
     let n = 0;
     for (const h of state.hurdles) if (id != null && h.id === id && h.avatar) { h.avatar = null; n++; }
+    const w = scrubPainter(wall, id);
     msgs.push('remove a hurdle');
-    log(`remove: blocked, ${n} hurdle(s) cleared`);
+    log(`remove: blocked, ${n} hurdle(s) cleared, ${w} name(s) off the wall`);
   }
 
   // 2. open game issues, oldest first
@@ -220,6 +226,27 @@ async function pass(now, trigger, t0) {
       // 3. classify
       if (!LOGIN_RE.test(login)) { replies.push({ num: is.number, type: 'silent' }); continue; }
       const key = seenKey(login, kind);
+      if (kind === 'paint') {
+        // one pixel per person per utc day. anything but a fresh paint is a reply only, and one per person per run.
+        const p = parsePaint(is.title), quiet = () => (perRun[key] = (perRun[key] || 0) + 1) > 1;
+        const opened = is.created_at ? is.created_at.slice(0, 10) : todayUTC;
+        const say = (type, o = {}) => replies.push({ num: is.number, type: quiet() ? 'silent' : type, ...o });
+        if (p.bad) { say('paintBad'); continue; }
+        if (wall.seen[key] && wall.seen[key] >= opened) { say('paintRepeat'); continue; }
+        const u = await getUser(login);
+        if (!u || blocked(u, block)) { replies.push({ num: is.number, type: 'silent' }); continue; }
+        if (wall.recent.filter((t) => now - Date.parse(t) < 3600e3).length >= PAINT_MAX) { say('paintBusy'); continue; }
+        if (isLocked(wall, p.x, p.y, now)) { say('paintLocked', { x: p.x, y: p.y }); continue; }
+        // the name shows under the wall only for accounts that could be a face on the track
+        applyPaint(wall, { x: p.x, y: p.y, k: p.k, id: u.id, login: eligible(u, block, now) ? u.login : null, at: stamp });
+        wall.seen[key] = todayUTC;
+        state.handled.push(is.number);
+        state.outcomes[is.number] = `p${p.x}.${p.y}.${p.k}`;
+        replies.push({ num: is.number, type: 'paint', x: p.x, y: p.y, k: p.k });
+        msgs.push(`paint ${p.x} ${p.y} ${p.name}`);
+        log(`#${is.number}: paint ${p.x} ${p.y} ${p.name}`);
+        continue;
+      }
       // a repeat if they were already counted on or after the day this issue was opened.
       // so a repeat whose reply failed yesterday is still a repeat today, not a new try.
       const opened = is.created_at ? dateIn(PT, new Date(is.created_at)) : todayPT;
@@ -263,8 +290,9 @@ async function pass(now, trigger, t0) {
     }
   }
 
-  // 4. daily refresh
-  if (state.lastDaily !== todayPT || trigger === 'schedule') {
+  // 4. daily refresh. the schedule runs every 3 hours for the sky, and refreshes too (a few cheap calls).
+  const newDay = state.lastDaily !== todayPT;
+  if (newDay || trigger === 'schedule') {
     try {
       const raw = [];
       for (let p = 1; p <= 3; p++) {
@@ -291,21 +319,27 @@ async function pass(now, trigger, t0) {
       state.streak = { repo: cfg.flag, current: s.current, start: s.start, best: Math.max(state.streak?.best || 0, s.current) };
     } catch (e) { log('daily: streak kept, ' + e.message); }
     state.lastDaily = todayPT;
-    msgs.push(`daily: day ${state.streak.current}`);
+    msgs.push(newDay ? `daily: day ${state.streak.current}` : `sky: ${sceneAt(now).phase}`);
   }
   // replies alone (repeat, busy, spam) change nothing worth a commit
   if (!msgs.length) return { state, replies, msgs, lines, more };
   prune(state, now, todayPT);
+  pruneWall(wall, now.getTime());
 
   // 5a. render + write
-  renderAll(state, ROOT, now.getTime());
+  renderAll(state, ROOT, now.getTime(), wall, REPO);
   writeFileSync(sp, JSON.stringify(state, null, 1) + '\n');
+  writeFileSync(wp, JSON.stringify(wall, null, 1) + '\n');
   if (blockChanged) writeFileSync(bp, JSON.stringify(block, null, 1) + '\n');
   return { state, replies, msgs, lines, more };
 }
 
-// "s12" stop #12 with a face, "s12p" with a plain one, "k3" knock #3
-const decode = (o) => !o ? { type: 'pending' } : o[0] === 's' ? { type: 'stop', n: parseInt(o.slice(1), 10), plain: o.endsWith('p') } : { type: 'knock', k: +o.slice(1) };
+// "s12" stop #12 with a face, "s12p" with a plain one, "k3" knock #3, "p12.7.o" painted 12 7 orange
+const decode = (o) => {
+  if (!o) return { type: 'pending' };
+  if (o[0] === 'p') { const [x, y, k] = o.slice(1).split('.'); return { type: 'paint', x: +x, y: +y, k }; }
+  return o[0] === 's' ? { type: 'stop', n: parseInt(o.slice(1), 10), plain: o.endsWith('p') } : { type: 'knock', k: +o.slice(1) };
+};
 
 // ---------- 6. replies, after a successful push ----------
 // no hero image in replies: it would pin other players' faces into this comment forever,
@@ -325,13 +359,21 @@ export function replyText(r, lines) {
     case 'repeat': return lines.repeat;
     case 'knockRepeat': return lines.knockRepeat;
     case 'busy': return lines.busy;
+    case 'paint': return lines.paint.replaceAll('{x}', r.x).replaceAll('{y}', r.y).replaceAll('{color}', colorOf(r.k)?.name ?? '').replaceAll('{user}', USER);
+    case 'paintBad': return lines.paintBad.replace('{cols}', COLS).replace('{rows}', ROWS).replace('{colors}', colorNames().slice(0, -1).join(', ') + ' or ' + colorNames().at(-1));
+    case 'paintRepeat': return lines.paintRepeat;
+    case 'paintLocked': return lines.paintLocked.replaceAll('{x}', r.x).replaceAll('{y}', r.y);
+    case 'paintBusy': return lines.paintBusy;
     default: return null;
   }
 }
 
-async function ensureLabel() {
-  const { status } = await api('GET', `/repos/${REPO}/labels/played`, null, { ok: [404] });
-  if (status === 404) await api('POST', `/repos/${REPO}/labels`, { name: 'played', color: '8b949e', description: 'tried to stop him' }, { ok: [422] });
+const LABELS = { played: ['8b949e', 'tried to stop him'], painted: ['f5a623', 'painted the wall'] };
+// only a paint that landed is 'painted'. a paint try that bounced (bad, repeat, locked, busy) is just 'played'.
+export const labelFor = (type) => (type === 'paint' ? 'painted' : 'played');
+async function ensureLabel(name) {
+  const { status } = await api('GET', `/repos/${REPO}/labels/${name}`, null, { ok: [404] });
+  if (status === 404) await api('POST', `/repos/${REPO}/labels`, { name, color: LABELS[name][0], description: LABELS[name][1] }, { ok: [422] });
 }
 
 async function reply(r, lines) {
@@ -345,7 +387,7 @@ async function reply(r, lines) {
     const { data: comments } = await api('GET', `${base}/comments?per_page=100`);
     if (!comments.some((c) => c.user?.login === BOT.name)) await api('POST', `${base}/comments`, { body });
   }
-  await api('POST', `${base}/labels`, { labels: ['played'] });
+  await api('POST', `${base}/labels`, { labels: [labelFor(r.type)] });
   await api('PATCH', base, { state: 'closed', state_reason: 'completed' });
   await api('PUT', `${base}/lock`, { lock_reason: 'resolved' });
 }
@@ -378,7 +420,9 @@ export async function main() {
     }
   }
 
-  if (out.replies.some((r) => r.type !== 'silent')) await ensureLabel().catch((e) => log('label: ' + e.message));
+  for (const name of new Set(out.replies.filter((r) => r.type !== 'silent' && r.type !== 'pending').map((r) => labelFor(r.type)))) {
+    await ensureLabel(name).catch((e) => log('label: ' + e.message));
+  }
   let failed = 0, more = out.more;
   for (const r of out.replies) {
     if (Date.now() - t0 > REPLY_BUDGET) { more = true; log('out of time, the next run replies to the rest'); break; }

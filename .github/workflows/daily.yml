@@ -2,8 +2,9 @@ name: daily
 
 on:
   schedule:
-    # 01:17 PDT / 00:17 PST: always after midnight PT, and off the hour so it isn't delayed
-    - cron: "17 8 * * *"
+    # every 3 hours, off the hour so it isn't delayed: the sky follows his clock (dawn, day, dusk, night).
+    # each run also refreshes the repos and the streak (a few cheap calls). a run that changes nothing commits nothing.
+    - cron: "23 */3 * * *"
   workflow_dispatch:
 
 permissions:
