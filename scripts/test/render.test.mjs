@@ -115,20 +115,21 @@ test('hero files: small, no script, no foreignObject, no outside urls', () => {
     assert.doesNotMatch(s, /octocat|aaghashm/);
   }
   for (const k of ['play', 'stop']) for (const th of ['dark', 'light']) assert.doesNotMatch(buttonSvg(k, th), /<script|https:/);
-  // the phone file: one picture, both themes, picked by the phone's own setting
-  const fullPhone = phoneSvg({ ...state, hurdles: Array.from({ length: 5 }, (_, i) => ({ id: i, n: 37 - i, avatar: 'data:image/png;base64,' + 'A'.repeat(8192) })) }, cfg);
-  assert.ok(Buffer.byteLength(fullPhone) < 100 * 1024, 'phone with 5 faces is too big');
-  const p = phoneSvg(state, cfg, Date.parse('2026-10-15T20:00:00Z'));
-  assert.ok(Buffer.byteLength(p) < 56 * 1024, `phone is ${Buffer.byteLength(p)} bytes`);
-  assert.match(p, /width="600" height="300" viewBox="0 0 600 300"/);
-  assert.match(p, /@media \(prefers-color-scheme:dark\)\{#pl\{display:none\}#pd\{display:inline\}\}/);
-  assert.match(p, /<g id="pd" display="none">/);
-  assert.match(p, /stop-color="#bfdcff"/);
-  assert.match(p, /stop-color="#0d1b2e"/);
-  assert.doesNotMatch(p, /<script|foreignObject|octocat|aaghashm/i);
-  assert.deepEqual([...new Set(p.match(/https?:\/\/[^\s"')]+/g))], ['http://www.w3.org/2000/svg']);
-  assert.equal((p.match(/<image /g) || []).length, 1);
-  assert.equal((p.match(/href="#av0"/g) || []).length, 2); // light + dark
+  // the phone files: one per theme, picked by the README, so they follow github's theme switch
+  for (const th of ['dark', 'light']) {
+    const fullPhone = phoneSvg({ ...state, hurdles: Array.from({ length: 5 }, (_, i) => ({ id: i, n: 37 - i, avatar: 'data:image/png;base64,' + 'A'.repeat(8192) })) }, cfg, th);
+    assert.ok(Buffer.byteLength(fullPhone) < 100 * 1024, 'phone with 5 faces is too big');
+    const p = phoneSvg(state, cfg, th, Date.parse('2026-10-15T20:00:00Z'));
+    assert.ok(Buffer.byteLength(p) < 56 * 1024, `phone is ${Buffer.byteLength(p)} bytes`);
+    assert.match(p, /width="600" height="300" viewBox="0 0 600 300"/);
+    assert.doesNotMatch(p, /prefers-color-scheme/);
+    assert.match(p, th === 'dark' ? /stop-color="#0d1b2e"/ : /stop-color="#bfdcff"/);
+    assert.doesNotMatch(p, th === 'dark' ? /stop-color="#bfdcff"/ : /stop-color="#0d1b2e"/);
+    assert.doesNotMatch(p, /<script|foreignObject|octocat|aaghashm/i);
+    assert.deepEqual([...new Set(p.match(/https?:\/\/[^\s"')]+/g))], ['http://www.w3.org/2000/svg']);
+    assert.equal((p.match(/<image /g) || []).length, 1);
+    assert.equal((p.match(/href="#av0"/g) || []).length, 1);
+  }
 });
 
 test('wobble only within 24h of a knock', () => {
@@ -267,8 +268,8 @@ test('README: one stop joke, honest gaps, links persistent-stopwatch, no bio rep
   // the locks are the quiet gaps between repos, nothing more is claimed
   assert.match(md, /grey ones are the quiet stretches/);
   assert.doesNotMatch(md, /can't see/);
-  // phones get the 2:1 picture first; it carries no color scheme, so github's theme switch leaves it alone
-  assert.match(md, /<picture>\s*<source media="\(max-width: 600px\)" srcset="[^"]+\/assets\/phone-[0-9a-f]{8}\.svg">\s*<source media="\(prefers-color-scheme: dark\)"/);
+  // phones get the 2:1 picture first, one per theme, dark first, so github's theme switch picks it like the wide one
+  assert.match(md, /<picture>\s*<source media="\(max-width: 600px\) and \(prefers-color-scheme: dark\)" srcset="[^"]+\/assets\/phone-dark-[0-9a-f]{8}\.svg">\s*<source media="\(max-width: 600px\)" srcset="[^"]+\/assets\/phone-light-[0-9a-f]{8}\.svg">\s*<source media="\(prefers-color-scheme: dark\)"/);
   assert.match(md, new RegExp(`<img width="${buttonW('play')}" alt="play the real one"`));
   assert.match(md, new RegExp(`<img width="${buttonW('stop')}" alt="stop him"`));
   assert.match(md, /\[persistent-stopwatch\]\(https:\/\/aaghashm\.github\.io\/persistent-stopwatch\/\)/);
@@ -377,8 +378,7 @@ test('same world as the site: slate ground and blue hills by day, navy with star
 test('phone: 2:1, readable on a 320px screen (a 288px image), big blocks and faces', () => {
   const k = 288 / PHONE.w;
   assert.equal(PHONE.w / PHONE.h, 2);
-  const p = phoneSvg(state, cfg, Date.parse('2026-10-15T20:00:00Z'));
-  const light = p.slice(p.indexOf('<g id="pl">'), p.indexOf('<g id="pd"'));
+  const light = phoneSvg(state, cfg, 'light', Date.parse('2026-10-15T20:00:00Z'));
   // every repo block and one lock per gap
   assert.equal((light.match(/<g class="tile/g) || []).length, 13);
   // blocks at 14px, faces at 18px, text at 10px or more
@@ -402,7 +402,7 @@ test('phone: 2:1, readable on a 320px screen (a 288px image), big blocks and fac
   const m = light.match(/y="([\d.]+)" font-size="([\d.]+)"[^>]*>tried 37 times/);
   assert.ok(+m[1] - +m[2] * 0.75 >= PHONE.gy + 13 * PHONE.s, 'counter below the hurdle labels');
   // "you?" sits over the empty hurdle, so it never meets the counter as it slides left
-  const empty = phoneSvg({ ...state, tries: 0, hurdles: [] }, cfg);
+  const empty = phoneSvg({ ...state, tries: 0, hurdles: [] }, cfg, 'light');
   const you = empty.match(/y="([\d.]+)" font-size="([\d.]+)"[^>]*>you\?</);
   const youBottom = PHONE.gy + (+you[1] - GY + +you[2] * 0.25) * PHONE.s;
   assert.ok(youBottom <= PHONE.gy - 19 * PHONE.s + 2, 'you? is not over the hurdle bar');

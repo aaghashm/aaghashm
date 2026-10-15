@@ -71,7 +71,8 @@
  "assets": {
   "heroDark": "hero-dark-fe99040b.svg",
   "heroLight": "hero-light-5d813706.svg",
-  "phone": "phone-18319311.svg"
+  "phoneDark": "phone-dark-4dc1a3b7.svg",
+  "phoneLight": "phone-light-3ef87703.svg"
  },
  "modIssue": null
 }
