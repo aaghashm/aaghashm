@@ -29,7 +29,7 @@ export const HURDLE_R = 12, HURDLE_CY = GY - 4 - HURDLE_R;
 export const WIDE = { s: 1.5, rx: 644, gy: 224 };
 // narrow (tablets, where the readme column is 440-680px): title + bubble on top, track below.
 // timeline at ts (one lock per gap), the action at s. phones get their own 2:1 picture, PHONE below.
-export const NARROW = { s: 1.75, ts: 1.2, rx: 664, gy: 246, x0: 22, maxWidth: 680, counter: 30, bubble: [28, 16] };
+export const NARROW = { s: 1.75, ts: 1.2, rx: 664, gy: 246, x0: 22, maxWidth: 680, title: 60, counter: 30, counterY: 102, bubble: [28, 16] };
 // phone (viewport up to maxWidth): its own 600x300 file. title and bubble on one row, then the track,
 // the counter on the ground. the flag points left, over the timeline, so the runner sits close to the blocks.
 // "you?" sits over the empty hurdle there, so it never meets the counter.
@@ -477,7 +477,7 @@ function wideScene(state, T, cfg, dark) {
   return out.join('');
 }
 
-// phone (the image is ~320x107 css px there): title and bubble on top, every block below with one lock per gap
+// tablets (the image is 440-680 css px there): title and bubble on top, every block below with one lock per gap
 function narrowScene(state, T, cfg, dark) {
   const N = NARROW, out = [];
   const layout = layoutTimeline(state.repos || [], cfg, 1);
@@ -492,11 +492,11 @@ function narrowScene(state, T, cfg, dark) {
   out.push(`<g transform="translate(${ox} ${oy}) scale(${N.ts})">${tiles(layout, T, cfg)}</g>`);
   if (flagSlot) out.push(flag(streak, T, nx(flagSlot.x + TILE / 2), r2(oy + (GY - TILE - (flagSlot.tower.repos.length - 1) * STACK) * N.ts - 4), 136, 26, true));
   const ax = r2(N.rx - RX * N.s), ay = r2(N.gy - GY * N.s);
-  out.push(`<g transform="translate(${ax} ${ay}) scale(${N.s})">${action(state, T, { ls: 13, ly: 12, mask: 'mn' })}</g>`);
+  out.push(`<g transform="translate(${ax} ${ay}) scale(${N.s})">${action(state, T, { ls: 12.5, ly: 10.75, mask: 'mn' })}</g>`);
   const [size, pad] = N.bubble, bw = bubbleBox(size, pad).w, bx = r2(W - 18 - bw);
   out.push(speech(T, { x: bx, y: 8, size, pad, tail: [r2(bx + 30), r2(bx + 54), N.rx + 14, N.gy - 88] }));
-  out.push(`<text class="sg" x="${N.x0 - 2}" y="62" font-size="68" fill="${T.accentInk}" letter-spacing="-1.5">still running.</text>`);
-  out.push(`<text x="${N.x0}" y="96" font-size="${N.counter}" fill="${T.muted}">${esc(counterLine(state.tries || 0))}</text>`);
+  out.push(`<text class="sg" x="${N.x0 - 2}" y="${N.title}" font-size="68" fill="${T.accentInk}" letter-spacing="-1.5">still running.</text>`);
+  out.push(`<text x="${N.x0}" y="${N.counterY}" font-size="${N.counter}" fill="${T.muted}">${esc(counterLine(state.tries || 0))}</text>`);
   return out.join('');
 }
 

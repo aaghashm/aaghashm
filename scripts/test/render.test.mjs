@@ -234,9 +234,14 @@ test('readable: no text under 12px wide, the narrow layout keeps every block, sw
   // the narrow layout is for tablets, where the image is 440px or wider: text stays at 10px or more there
   const nsizes = [...narrow.matchAll(/font-size="([\d.]+)"/g)].map((m) => +m[1]).filter((n) => n >= 20);
   assert.ok(nsizes.length >= 4 && Math.min(...nsizes) * 440 / 840 >= 9.9, `smallest narrow text ${Math.min(...nsizes)}`);
-  // the counter's descenders clear the top of the tallest tower
+  // the counter's descenders clear the top of the tallest tower, and it sits 6px or more under the title's
   const nTop = NARROW.gy - (26 + 3 * STACK) * NARROW.ts;
-  assert.ok(96 + NARROW.counter * 0.25 + 4 <= nTop, `narrow counter vs tower top ${nTop}`);
+  assert.ok(NARROW.counterY + NARROW.counter * 0.25 + 4 <= nTop, `narrow counter vs tower top ${nTop}`);
+  assert.ok(NARROW.counterY - NARROW.counter * 0.73 - (NARROW.title + 68 * 0.2) >= 6, 'narrow counter touches the title');
+  // "you?" clears the bottom of the card
+  const e = heroSvg({ ...state, tries: 0, hurdles: [] }, cfg, 'dark');
+  const you = e.slice(e.indexOf('<g id="narrow"')).match(/y="([\d.]+)" font-size="([\d.]+)"[^>]*>you\?</);
+  assert.ok(NARROW.gy + (+you[1] - GY + +you[2] * 0.2) * NARROW.s <= H - 10, 'narrow you? on the bottom edge');
   // and the jk. bubble clears his head at the top of a jump
   const top = NARROW.gy - (12 + 29.5 + 34) * NARROW.s;
   assert.ok(8 + bubbleBox(...NARROW.bubble).h <= top, `bubble bottom ${8 + bubbleBox(...NARROW.bubble).h} vs head ${top}`);
