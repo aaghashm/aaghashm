@@ -5,9 +5,10 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   ROOT, layoutTimeline, crossTime, START_X, heroSvg, buttonSvg, jumpAt, hurdlePoints, counterLine, sinceStart, iconInk,
-  RX, GY, HURDLE_CY, HURDLE_R, LOOP, F, NARROW, WIDE, THEMES, streakLine, W, H, sansW, bubbleBox, SHOW, MARK, textW,
+  RX, GY, HURDLE_CY, HURDLE_R, LOOP, F, NARROW, WIDE, THEMES, W, H, sansW, bubbleBox, SHOW, MARK, textW,
   PHONE, phoneSvg, phoneLayout, opacityAt, BEHIND, buttonW, BUTTON, STACK,
 } from '../render.mjs';
+import { SKIES } from '../scene.mjs';
 import { streakFrom, pickRepos, prune, gameKind, eligible, sniff, stopLine, knockLine, LOGIN_RE, dateIn, parseRemove, replyText } from '../reconcile.mjs';
 
 const fx = (n) => JSON.parse(readFileSync(join(ROOT, 'scripts/test/fixtures', n), 'utf8'));
@@ -88,7 +89,8 @@ test('hero files: small, no script, no foreignObject, no outside urls', () => {
   for (const th of ['dark', 'light']) assert.ok(Buffer.byteLength(heroSvg(full, cfg, th)) < 100 * 1024, `${th} with 5 faces is too big`);
   for (const th of ['dark', 'light']) {
     const s = heroSvg(state, cfg, th, Date.parse('2026-10-15T20:00:00Z'));
-    assert.ok(Buffer.byteLength(s) < 56 * 1024, `${th} is ${Buffer.byteLength(s)} bytes`);
+    // fonts (about 18KB), both layouts, and the season's leaves or snow
+    assert.ok(Buffer.byteLength(s) < 64 * 1024, `${th} is ${Buffer.byteLength(s)} bytes`);
     assert.match(s, /@font-face\{font-family:sr-sans/);
     // every mono line (counter, labels, flag) is the site's jetbrains mono, not whatever the os has
     assert.match(s, /@font-face\{font-family:sr-mono;font-weight:500/);
@@ -123,8 +125,9 @@ test('hero files: small, no script, no foreignObject, no outside urls', () => {
     assert.ok(Buffer.byteLength(p) < 56 * 1024, `phone is ${Buffer.byteLength(p)} bytes`);
     assert.match(p, /width="600" height="300" viewBox="0 0 600 300"/);
     assert.doesNotMatch(p, /prefers-color-scheme/);
-    assert.match(p, th === 'dark' ? /stop-color="#0d1b2e"/ : /stop-color="#bfdcff"/);
-    assert.doesNotMatch(p, th === 'dark' ? /stop-color="#bfdcff"/ : /stop-color="#0d1b2e"/);
+    const other = th === 'dark' ? 'light' : 'dark';
+    assert.match(p, new RegExp(`stop-color="${SKIES[th].night.sky0}"`));
+    assert.doesNotMatch(p, new RegExp(`stop-color="${SKIES[other].night.sky0}"`));
     assert.doesNotMatch(p, /<script|foreignObject|octocat|aaghashm/i);
     assert.deepEqual([...new Set(p.match(/https?:\/\/[^\s"')]+/g))], ['http://www.w3.org/2000/svg']);
     assert.equal((p.match(/<image /g) || []).length, 1);
@@ -256,12 +259,9 @@ test('streak at 0: no orange line, no "since", the flag shows the best', () => {
   assert.doesNotMatch(s, /since 28 jun/);
   assert.match(s, /110 days\. still running\./);
   assert.equal((heroSvg(state, cfg, 'dark', Date.parse('2026-10-15T20:00:00Z')).match(streakPath) || []).length, 2); // wide + phone
-  // the flag says day 110, so the paragraph says something new
-  assert.equal(streakLine({ current: 110, start: '2026-06-28', best: 110 }), 'a commit every day since 28 jun.');
-  assert.equal(streakLine({ current: 0, best: 110 }), 'best run so far: 110 days of daily commits.');
 });
 
-test('README: one stop joke, honest gaps, links persistent-stopwatch, no bio repeat', () => {
+test('README: one stop joke, honest gaps, sells nothing, no bio repeat', () => {
   const md = readFileSync(join(ROOT, 'README.md'), 'utf8');
   assert.doesNotMatch(md, /nobody's stopped/);
   assert.doesNotMatch(md, /still running\. most of it's private/);
@@ -272,7 +272,9 @@ test('README: one stop joke, honest gaps, links persistent-stopwatch, no bio rep
   assert.match(md, /<picture>\s*<source media="\(max-width: 600px\) and \(prefers-color-scheme: dark\)" srcset="[^"]+\/assets\/phone-dark-[0-9a-f]{8}\.svg">\s*<source media="\(max-width: 600px\)" srcset="[^"]+\/assets\/phone-light-[0-9a-f]{8}\.svg">\s*<source media="\(prefers-color-scheme: dark\)"/);
   assert.match(md, new RegExp(`<img width="${buttonW('play')}" alt="play the real one"`));
   assert.match(md, new RegExp(`<img width="${buttonW('stop')}" alt="stop him"`));
-  assert.match(md, /\[persistent-stopwatch\]\(https:\/\/aaghashm\.github\.io\/persistent-stopwatch\/\)/);
+  // no project is advertised anywhere: not in the README, not in the bot's replies
+  assert.doesNotMatch(md, /persistent-stopwatch|plasma|kde|reboots|the flag is/i);
+  assert.doesNotMatch(JSON.stringify(lines), /persistent-stopwatch|plasma|kde|reboots/i);
   assert.doesNotMatch(md, /—|–/);
   assert.match(md, /^<!-- built from templates\/README\.md\.tmpl\. edit that, not this\. -->/);
   assert.doesNotMatch(md, /day 110/);   // once is enough, it's on the flag
@@ -354,8 +356,9 @@ test('bubble opens on one line, then grows for jk.; the still frame shows both',
 });
 
 test('same world as the site: slate ground and blue hills by day, navy with stars and a moon by night', () => {
-  const now = Date.parse('2026-10-15T20:00:00Z');
-  const light = heroSvg(state, cfg, 'light', now), dark = heroSvg(state, cfg, 'dark', now);
+  // 13:00 and 03:00 in kolkata, an hour and a half after these
+  const day = Date.parse('2026-10-16T06:00:00Z'), now = Date.parse('2026-10-15T20:00:00Z');
+  const light = heroSvg(state, cfg, 'light', day), dark = heroSvg(state, cfg, 'dark', now);
   for (const c of ['#bfdcff', '#fef3e2', '#cfdcf1', '#a3badf', '#4f6a99', '#8aa6d6']) assert.ok(light.includes(c), c);
   for (const c of ['#0d1b2e', '#1d2c4a', '#1a2a46', '#142239', '#0b1422', '#2d4a7a']) assert.ok(dark.includes(c), c);
   assert.match(dark, /fill="#f2e8d2"/);     // moon

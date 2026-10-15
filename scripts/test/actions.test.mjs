@@ -339,3 +339,104 @@ test('play + daily workflows, end to end', async (t) => {
     assert.equal(readdirSync(join(work, 'assets')).filter((f) => f.startsWith('phone-')).length, 2);
   });
 });
+
+test('the wall, end to end: paint, once a day, the hour lock, bad input, blocked, names, remove', async (t) => {
+  const { tmp, work, remote } = setup();
+  const gh = await mockGithub();
+  const { db } = gh;
+  const base = { GITHUB_API_URL: gh.url, AVATAR_BASE: gh.url };
+  t.after(() => gh.close());
+  const wallOf = () => JSON.parse(execFileSync('git', ['--git-dir', remote, 'show', 'main:data/wall.json'], { encoding: 'utf8', maxBuffer: 1e7 }));
+  const readme = () => execFileSync('git', ['--git-dir', remote, 'show', 'main:README.md'], { encoding: 'utf8', maxBuffer: 1e7 });
+  const go = (NOW) => run(work, { ...base, TRIGGER: 'issues', NOW, GITHUB_EVENT_PATH: event(tmp, 'paint') });
+
+  db.user('alice');
+  db.user('bob');
+  db.user('carl');
+  db.user('newbie', { created_at: '2026-10-10T00:00:00Z' });   // too new for a name under the wall
+  const troll = db.user('troll');
+  writeFileSync(join(work, 'data/blocklist.json'), JSON.stringify({ ids: [troll.id], logins: [] }));
+  sh(work, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qam', 'block troll');
+  sh(work, 'push', '-q', 'origin', 'main');
+
+  const a1 = db.open('paint 12 7 orange', 'alice', { created_at: '2026-10-15T18:00:00Z' });
+  const a2 = db.open('paint 13 7 blue', 'alice', { created_at: '2026-10-15T18:00:00Z' });  // second today
+  const b1 = db.open('Paint  12, 7  Teal', 'bob', { created_at: '2026-10-15T18:00:00Z' });  // same tile, inside the hour
+  const n1 = db.open('paint green 40 12', 'newbie', { created_at: '2026-10-15T18:00:00Z' }); // color first is fine
+  const bad = db.open('paint 99 7 orange', 'carl', { created_at: '2026-10-15T18:00:00Z' });
+  const bad2 = db.open('paint 98 7 orange', 'carl', { created_at: '2026-10-15T18:00:00Z' }); // one reply per person per run
+  const tr = db.open('paint 1 1 black', 'troll', { created_at: '2026-10-15T18:00:00Z' });
+  const real = db.open('painting is broken on mobile', 'bob');
+  let r = await go('2026-10-15T18:00:00Z');
+  assert.equal(r.code, 0, r.out);
+
+  let w = wallOf();
+  assert.equal(w.rows[6][11], 'o');            // column 12, row 7
+  assert.equal(w.rows[11][39], 'g');           // column 40, row 12
+  assert.equal(w.rows[6][12], '.');            // alice's second one didn't land
+  assert.equal(w.rows[0][0], '.');             // the blocked account painted nothing
+  assert.equal(w.count, 2);
+  assert.deepEqual(w.last.map((e) => e.login), [null, 'alice']);
+  assert.match(remoteLog(remote)[0], /paint 12 7 orange, paint 40 12 green/);
+
+  assert.match(db.comments[a1.number][0].body, /^painted 12 7 orange\. it's on the wall: https:\/\/github\.com\/aaghashm\n\none pixel a day\./);
+  assert.match(db.comments[a2.number][0].body, /^one pixel a day\. yours is already up/);
+  assert.match(db.comments[b1.number][0].body, /^12 7 was painted less than an hour ago/);
+  assert.match(db.comments[bad.number][0].body, /^couldn't read that\. try `paint 12 7 orange`: column 1-48, row 1-12, then orange, pink, yellow, green, teal, blue, white or black\.$/);
+  for (const is of [a1, a2, b1, n1, bad]) {
+    assert.equal(is.state, 'closed', `#${is.number}`);
+    assert.equal(is.locked, 'resolved');
+    // only a paint that landed is labelled painted. a bounced one (repeat, locked, bad) is just played.
+    assert.deepEqual(is.labels, [a1, n1].includes(is) ? ['painted'] : ['played'], `#${is.number}`);
+    assert.equal(db.comments[is.number].length, 1);
+  }
+  for (const is of [tr, bad2]) {
+    assert.equal(is.state, 'closed');
+    assert.equal(is.state_reason, 'not_planned');
+    assert.equal(db.comments[is.number], undefined);
+  }
+  assert.equal(real.state, 'open');
+  assert.ok(db.labels.has('painted'));
+  // replies are short, lowercase, and ping nobody
+  for (const is of [a1, a2, b1, n1, bad]) { const c = db.comments[is.number][0].body; assert.equal(c, c.toLowerCase()); assert.doesNotMatch(c, /@[a-z]/i); }
+
+  // the README names painters who could be faces, the new account is "someone". the picture never has a login.
+  let md = readme();
+  assert.match(md, /last painted by someone and \[@alice\]\(https:\/\/github\.com\/alice\)\./);
+  sh(work, 'pull', '-q', 'origin', 'main');
+  const st = remoteState(remote);
+  assert.ok(st.assets.wallDark && st.assets.wallLight);
+  for (const f of [st.assets.wallDark, st.assets.wallLight]) {
+    assert.ok(md.includes(f));
+    const svg = readFileSync(join(work, 'assets', f), 'utf8');
+    assert.doesNotMatch(svg, /alice|newbie|bob/);
+    assert.match(svg, /the wall\. 2 pixels so far\./);
+  }
+  assert.deepEqual(readdirSync(join(work, 'assets')).filter((f) => f.startsWith('wall-')).sort(), [st.assets.wallDark, st.assets.wallLight].sort());
+
+  // an hour later the tile is open again for bob; the next utc day alice paints again
+  const b2 = db.open('paint 12 7 teal', 'bob', { created_at: '2026-10-15T19:05:00Z' });
+  r = await go('2026-10-15T19:05:00Z');
+  assert.equal(r.code, 0, r.out);
+  assert.match(db.comments[b2.number][0].body, /^painted 12 7 teal\./);
+  assert.equal(wallOf().rows[6][11], 't');
+  const a3 = db.open('paint 13 7 blue', 'alice', { created_at: '2026-10-16T00:30:00Z' });
+  r = await go('2026-10-16T00:30:00Z');
+  assert.equal(r.code, 0, r.out);
+  assert.match(db.comments[a3.number][0].body, /^painted 13 7 blue\./);
+  w = wallOf();
+  assert.equal(w.count, 4);
+  assert.deepEqual(w.last.map((e) => e.login), ['alice', 'bob', null]);
+  // the hour lock and the busy window forget what they no longer need
+  assert.deepEqual(Object.keys(w.fresh), ['13,7']);
+
+  // the owner's remove takes a name off the wall too (the pixels stay)
+  r = await run(work, { ...base, TRIGGER: 'workflow_dispatch', REMOVE_LOGIN: 'alice', NOW: '2026-10-16T00:40:00Z' });
+  assert.equal(r.code, 0, r.out);
+  w = wallOf();
+  assert.deepEqual(w.last.map((e) => e.login), [null, 'bob', null]);
+  assert.equal(w.rows[6][12], 'b');
+  md = readme();
+  assert.doesNotMatch(md, /@alice/);
+  assert.match(md, /last painted by someone, \[@bob\]\(https:\/\/github\.com\/bob\) and someone\./);
+});
