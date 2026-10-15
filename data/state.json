@@ -7,8 +7,12 @@
  "hurdles": [],
  "seen": {},
  "recent": [],
- "handled": [],
- "outcomes": {},
+ "handled": [
+  1
+ ],
+ "outcomes": {
+  "1": "p33.7.p"
+ },
  "streak": {
   "repo": "persistent-stopwatch",
   "current": 110,
@@ -73,8 +77,8 @@
   "heroLight": "hero-light-5600016a.svg",
   "phoneDark": "phone-dark-53c05652.svg",
   "phoneLight": "phone-light-2da526b8.svg",
-  "wallDark": "wall-dark-a86807dc.svg",
-  "wallLight": "wall-light-b38999bd.svg"
+  "wallDark": "wall-dark-342efac1.svg",
+  "wallLight": "wall-light-5ba62278.svg"
  },
  "modIssue": null
 }
