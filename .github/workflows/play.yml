@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       remove:
-        description: "hurdle number (like 37) or login to take off the track and block"
+        description: "login or hurdle number (like 37) to take off the track and block. from a terminal: gh workflow run play.yml -R aaghashm/aaghashm -f remove=<login>"
         required: false
         default: ""
 

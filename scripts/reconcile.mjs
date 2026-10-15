@@ -131,17 +131,22 @@ export function parseRemove(s) {
   return LOGIN_RE.test(t) ? { login: t } : t ? { bad: true } : null;
 }
 
-// the owner hears about every new face, once, in one locked issue only he and the bot can write in
+// how the owner takes a face off. said in the log issue and in every new face line.
+export const removeHow = (repo, who) => `\`gh workflow run play.yml -R ${repo} -f remove=${who}\``;
+
+// faces go up on their own. the owner hears about every new one, once, in one locked issue only he and the bot can write in
 async function notifyFace(state, n, login) {
   if (!state.modIssue) {
-    const body = 'every new face on the track gets one line here, so you can check it.\n\n'
-      + 'to take one off: actions > play > run workflow > remove: the hurdle number (like `37`) or the login.';
+    const body = 'faces go up on their own. every new one gets a line here, so you can check it.\n\n'
+      + 'to take one off the track and block that account from coming back, run:\n\n'
+      + removeHow(REPO, '<login>') + '\n\n'
+      + 'the hurdle number works too (`-f remove=37`). or on the web: actions > play > run workflow > remove.';
     const { data } = await api('POST', `/repos/${REPO}/issues`, { title: MOD_TITLE, body });
     state.modIssue = modIssueNum = data.number;
     await api('PUT', `/repos/${REPO}/issues/${data.number}/lock`, { lock_reason: 'resolved' }, { ok: [403, 422] });
   }
   await api('POST', `/repos/${REPO}/issues/${state.modIssue}/comments`, {
-    body: `@${USER} new face: hurdle **#${n}** is [${login}](https://github.com/${login}).\n\nnot ok? actions > play > run workflow > remove: \`${n}\``,
+    body: `@${USER} new face: hurdle **#${n}** is [${login}](https://github.com/${login}).\n\nnot ok? take it off: ${removeHow(REPO, login)}`,
   });
 }
 // both survive a push-race retry in the same process, so a retry never notifies twice or opens a second log issue

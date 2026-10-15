@@ -111,7 +111,10 @@ test('play + daily workflows, end to end', async (t) => {
     assert.equal(mod.state, 'open');
     assert.equal(db.comments[mod.number].length, 2);
     assert.match(db.comments[mod.number][0].body, /^@aaghashm new face: hurdle \*\*#1\*\* is \[alice\]/);
-    assert.match(db.comments[mod.number][1].body, /^@aaghashm new face: hurdle \*\*#6\*\* is \[frank\]\(https:\/\/github\.com\/frank\)\.[\s\S]*remove: `6`$/);
+    assert.match(db.comments[mod.number][1].body, /^@aaghashm new face: hurdle \*\*#6\*\* is \[frank\]\(https:\/\/github\.com\/frank\)\.[\s\S]*`gh workflow run play\.yml -R aaghashm\/aaghashm -f remove=frank`$/);
+    // faces go up on their own, and the log issue says exactly how to take one off
+    assert.match(mod.body, /faces go up on their own/);
+    assert.match(mod.body, /`gh workflow run play\.yml -R aaghashm\/aaghashm -f remove=<login>`/);
     assert.match(db.comments[k1.number][0].body, /^\*knock\*\n\n\.\.\.nothing\.\n\nknocks so far: 1\.$/);
     assert.match(db.comments[a2.number][0].body, /^one try a day/);
     // the body is never echoed, nobody is mentioned
