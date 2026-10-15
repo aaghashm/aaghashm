@@ -17,6 +17,8 @@ function setup() {
   const work = join(tmp, 'work'), remote = join(tmp, 'remote.git');
   for (const d of ['scripts', 'data', 'templates', 'assets', '.github']) cpSync(join(ROOT, d), join(work, d), { recursive: true });
   cpSync(join(ROOT, 'README.md'), join(work, 'README.md'));
+  // start from fixed data, not whatever the live bot last wrote
+  for (const f of ['state.json', 'wall.json']) cpSync(join(ROOT, 'scripts/test/fixtures', f), join(work, 'data', f));
   execFileSync('git', ['init', '-q', '--bare', '-b', 'main', remote]);
   sh(work, 'init', '-q', '-b', 'main');
   sh(work, 'add', '-A');
