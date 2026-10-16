@@ -73,12 +73,12 @@
  ],
  "lastDaily": "2026-10-15",
  "assets": {
-  "heroDark": "hero-dark-74b253df.svg",
-  "heroLight": "hero-light-9e062bba.svg",
-  "phoneDark": "phone-dark-aff6cee6.svg",
-  "phoneLight": "phone-light-a1955f6b.svg",
-  "wallDark": "wall-dark-9f0d73e6.svg",
-  "wallLight": "wall-light-fa42b84f.svg"
+  "heroDark": "hero-dark-6d96dc89.svg",
+  "heroLight": "hero-light-16940029.svg",
+  "phoneDark": "phone-dark-fd4a0635.svg",
+  "phoneLight": "phone-light-d225fe11.svg",
+  "wallDark": "wall-dark-2dc9c1a5.svg",
+  "wallLight": "wall-light-20e99eb5.svg"
  },
  "modIssue": null
 }
