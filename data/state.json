@@ -15,8 +15,8 @@
  },
  "streak": {
   "repo": "persistent-stopwatch",
-  "current": 110,
-  "start": "2026-06-28",
+  "current": 0,
+  "start": null,
   "best": 110
  },
  "repos": [
@@ -66,14 +66,14 @@
    "created": "2026-06-28T22:05:45Z"
   }
  ],
- "lastDaily": "2026-10-16",
+ "lastDaily": "2026-10-17",
  "assets": {
-  "heroDark": "hero-dark-99e498c9.svg",
-  "heroLight": "hero-light-1c1ce5db.svg",
-  "phoneDark": "phone-dark-53e4b924.svg",
-  "phoneLight": "phone-light-a8adb6ad.svg",
-  "wallDark": "wall-dark-2dc9c1a5.svg",
-  "wallLight": "wall-light-20e99eb5.svg"
+  "heroDark": "hero-dark-7bca1d40.svg",
+  "heroLight": "hero-light-fbb2abe9.svg",
+  "phoneDark": "phone-dark-8d501002.svg",
+  "phoneLight": "phone-light-4c34fb78.svg",
+  "wallDark": "wall-dark-4acfde03.svg",
+  "wallLight": "wall-light-87741f31.svg"
  },
  "modIssue": null
 }
