@@ -61,11 +61,6 @@
    "created": "2024-11-17T08:57:02Z"
   },
   {
-   "name": "App-Releases",
-   "lang": null,
-   "created": "2025-01-20T12:08:31Z"
-  },
-  {
    "name": "persistent-stopwatch",
    "lang": "C++",
    "created": "2026-06-28T22:05:45Z"
@@ -73,12 +68,12 @@
  ],
  "lastDaily": "2026-10-16",
  "assets": {
-  "heroDark": "hero-dark-d98135be.svg",
-  "heroLight": "hero-light-fd570a05.svg",
-  "phoneDark": "phone-dark-53c05652.svg",
-  "phoneLight": "phone-light-2da526b8.svg",
-  "wallDark": "wall-dark-342efac1.svg",
-  "wallLight": "wall-light-5ba62278.svg"
+  "heroDark": "hero-dark-99e498c9.svg",
+  "heroLight": "hero-light-1c1ce5db.svg",
+  "phoneDark": "phone-dark-53e4b924.svg",
+  "phoneLight": "phone-light-a8adb6ad.svg",
+  "wallDark": "wall-dark-2dc9c1a5.svg",
+  "wallLight": "wall-light-20e99eb5.svg"
  },
  "modIssue": null
 }
