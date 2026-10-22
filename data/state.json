@@ -66,14 +66,14 @@
    "created": "2026-06-28T22:05:45Z"
   }
  ],
- "lastDaily": "2026-10-21",
+ "lastDaily": "2026-10-22",
  "assets": {
-  "heroDark": "hero-dark-4c2a6cc2.svg",
-  "heroLight": "hero-light-b8fc5465.svg",
-  "phoneDark": "phone-dark-8225352a.svg",
-  "phoneLight": "phone-light-74d2db3b.svg",
-  "wallDark": "wall-dark-2dc9c1a5.svg",
-  "wallLight": "wall-light-20e99eb5.svg"
+  "heroDark": "hero-dark-d9ffbb27.svg",
+  "heroLight": "hero-light-befb68a5.svg",
+  "phoneDark": "phone-dark-8d501002.svg",
+  "phoneLight": "phone-light-4c34fb78.svg",
+  "wallDark": "wall-dark-4acfde03.svg",
+  "wallLight": "wall-light-87741f31.svg"
  },
  "modIssue": null
 }
